@@ -671,6 +671,32 @@ class FetcherTestCase(unittest.TestCase):
 
         self.assertTrue(is_login_timeout_page(TimeoutPage(), safe_page_content_fn=safe_page_content))
 
+    def test_is_login_timeout_page_accepts_partial_timeout_copy(self):
+        class TimeoutPage:
+            def __init__(self):
+                self.url = "https://mp.weixin.qq.com/"
+
+            def wait_for_load_state(self, state=None, timeout=None):
+                return None
+
+            def locator(self, selector, **kwargs):
+                if selector == "text=登录超时，请重新登录":
+                    return FakeLocator(count=0)
+                if selector == "text=登录超时":
+                    return FakeLocator(count=1)
+                if selector == "text=请重新登录":
+                    return FakeLocator(count=0)
+                if selector == "text=小程序":
+                    return FakeLocator(count=1)
+                if selector == "text=退出登录":
+                    return FakeLocator(count=1)
+                return FakeLocator()
+
+            def content(self):
+                return "<div>登录超时</div><div>小程序</div><div>退出登录</div>"
+
+        self.assertTrue(is_login_timeout_page(TimeoutPage(), safe_page_content_fn=safe_page_content))
+
     def test_recover_login_timeout_page_clicks_mini_program_entry(self):
         class TimeoutPage:
             def __init__(self):
@@ -2042,6 +2068,80 @@ class FetcherTestCase(unittest.TestCase):
 
         self.assertEqual(extract_deadline_from_captures(captures), "2026-04-27 08:37:32")
 
+    def test_extract_deadline_from_captures_prefers_earliest_deadline_when_list_has_multiple_pages(self):
+        from desktop_py.core.fetcher_page_strategy import extract_deadline_from_captures
+
+        captures = [
+            {
+                "response_type": "list",
+                "url": "https://game.weixin.qq.com/cgi-bin/gamewxagbdatawap/getuserrefundchecklist?per_page=2&cur_page=0",
+                "body": {
+                    "data": {
+                        "total_count": 3,
+                        "user_refund_check_list": [
+                            {"ctrl_info": {"deadline_time": "2026-04-25 00:00:00"}},
+                            {"ctrl_info": {"deadline_time": "2026-04-24 00:00:00"}},
+                        ]
+                    }
+                },
+            },
+            {
+                "response_type": "detail",
+                "body": {
+                    "data": {"user_refund_check_list": [{"ctrl_info": {"appeal_deadline_time": "2026-04-27 08:37:32"}}]}
+                },
+            },
+            {
+                "response_type": "list",
+                "url": "https://game.weixin.qq.com/cgi-bin/gamewxagbdatawap/getuserrefundchecklist?per_page=2&cur_page=1",
+                "body": {
+                    "data": {
+                        "total_count": 3,
+                        "user_refund_check_list": [{"ctrl_info": {"deadline_time": "2026-04-20 00:00:00"}}],
+                    }
+                },
+            },
+        ]
+
+        self.assertEqual(extract_deadline_from_captures(captures), "2026-04-20 00:00:00")
+
+    def test_fetch_paginated_refund_list_captures_appends_missing_pages(self):
+        from desktop_py.core.fetcher_page_strategy import fetch_paginated_refund_list_captures
+
+        logs: list[str] = []
+        fetched_urls: list[str] = []
+        captures = [
+            {
+                "response_type": "list",
+                "url": "https://game.weixin.qq.com/cgi-bin/gamewxagbdatawap/getuserrefundchecklist?token=1&per_page=2&cur_page=0",
+                "token": "1",
+                "body": {
+                    "data": {
+                        "total_count": 3,
+                        "user_refund_check_list": [
+                            {"ctrl_info": {"deadline_time": "2026-04-25 00:00:00"}},
+                            {"ctrl_info": {"deadline_time": "2026-04-24 00:00:00"}},
+                        ],
+                    }
+                },
+            }
+        ]
+
+        result = fetch_paginated_refund_list_captures(
+            page=object(),
+            captures=captures,
+            logger=logs.append,
+            log_fn=lambda logger, message: logger(message) if logger else None,
+            request_refund_list_page_fn=lambda _page, url: (
+                fetched_urls.append(url)
+                or {"data": {"total_count": 3, "user_refund_check_list": [{"ctrl_info": {"deadline_time": "2026-04-20 00:00:00"}}]}}
+            ),
+        )
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(fetched_urls, ["https://game.weixin.qq.com/cgi-bin/gamewxagbdatawap/getuserrefundchecklist?token=1&per_page=2&cur_page=1"])
+        self.assertIn("退款列表分页补抓成功：第 2/2 页。", logs)
+
     def test_captures_indicate_non_empty_refunds_does_not_treat_empty_count_as_pending(self):
         from desktop_py.core.fetcher_page_strategy import captures_indicate_non_empty_refunds
 
@@ -3111,6 +3211,112 @@ class FetcherTestCase(unittest.TestCase):
         self.assertTrue(valid)
         self.assertIn("开始自动续期账号 主账号。", logs)
         self.assertIn("账号 主账号 自动续期成功。", logs)
+
+    def test_validate_account_state_writes_offline_log_file_when_session_invalid(self):
+        account = AccountConfig(name="主账号", state_path="storage/shared.json")
+
+        class FakePageForValidation:
+            url = "https://mp.weixin.qq.com/"
+
+            def goto(self, _url, wait_until=None, timeout=None):
+                return None
+
+            def content(self):
+                return "<html></html>"
+
+            def locator(self, selector, **kwargs):
+                return FakeLocator()
+
+            def get_by_text(self, text, exact=False):
+                return FakeLocator()
+
+            def close(self):
+                return None
+
+        class FakeContextForValidation:
+            def __init__(self):
+                self.page = FakePageForValidation()
+
+            def new_page(self):
+                return self.page
+
+            def close(self):
+                return None
+
+        with (
+            patch("desktop_py.core.fetcher.sync_playwright") as mock_playwright,
+            patch(
+                "desktop_py.core.fetcher.create_browser_context",
+                return_value=(None, FakeContextForValidation()),
+            ),
+            patch("desktop_py.core.fetcher.Path.exists", return_value=True),
+            patch("desktop_py.core.fetcher.wait_for_url_contains", return_value=False),
+            patch("desktop_py.core.fetcher_session.log_session_offline") as mock_log_session_offline,
+        ):
+            mock_playwright.return_value.__enter__.return_value = object()
+
+            valid = validate_account_state(account)
+
+        self.assertFalse(valid)
+        mock_log_session_offline.assert_called_once_with(
+            "主账号",
+            "未检测到后台账号信息",
+            branch="missing_backend_account_signals",
+            page_url="https://mp.weixin.qq.com/",
+        )
+
+    def test_renew_account_state_writes_failure_reason_to_log_file(self):
+        account = AccountConfig(name="主账号", state_path="storage/shared.json")
+
+        class FakePageForRenew:
+            url = "https://mp.weixin.qq.com/"
+
+            def goto(self, _url, wait_until=None, timeout=None):
+                return None
+
+            def content(self):
+                return "<html></html>"
+
+            def locator(self, selector, **kwargs):
+                return FakeLocator()
+
+            def get_by_text(self, text, exact=False):
+                return FakeLocator()
+
+            def close(self):
+                return None
+
+        class FakeContextForRenew:
+            def __init__(self):
+                self.page = FakePageForRenew()
+
+            def new_page(self):
+                return self.page
+
+            def close(self):
+                return None
+
+        with (
+            patch("desktop_py.core.fetcher.sync_playwright") as mock_playwright,
+            patch(
+                "desktop_py.core.fetcher.create_browser_context",
+                return_value=(None, FakeContextForRenew()),
+            ),
+            patch("desktop_py.core.fetcher.Path.exists", return_value=True),
+            patch("desktop_py.core.fetcher.wait_for_url_contains", return_value=False),
+            patch("desktop_py.core.fetcher_session.log_session_renew_failed") as mock_log_session_renew_failed,
+        ):
+            mock_playwright.return_value.__enter__.return_value = object()
+
+            valid = renew_account_state(account)
+
+        self.assertFalse(valid)
+        mock_log_session_renew_failed.assert_called_once_with(
+            "主账号",
+            "未检测到后台账号信息",
+            branch="missing_backend_account_signals",
+            page_url="https://mp.weixin.qq.com/",
+        )
 
     def test_fetch_accounts_batch_stops_gracefully_when_cancelled(self):
         accounts = [

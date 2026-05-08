@@ -33,6 +33,11 @@ BUSINESS_IFRAME_SELECTORS = (
     "iframe[src*='refund']",
 )
 LOGIN_TIMEOUT_PAGE_TEXT = "登录超时，请重新登录"
+LOGIN_TIMEOUT_PAGE_TEXT_VARIANTS = (
+    LOGIN_TIMEOUT_PAGE_TEXT,
+    "登录超时",
+    "请重新登录",
+)
 LOGIN_TIMEOUT_NAV_TEXT = "小程序"
 LOGIN_TIMEOUT_EXIT_TEXT = "退出登录"
 MINI_PROGRAM_HOME_SELECTORS = (
@@ -329,7 +334,10 @@ def _page_contains_text(page: Page, text: str, *, safe_page_content_fn: SafePage
 
 
 def is_login_timeout_page(page: Page, *, safe_page_content_fn: SafePageContent) -> bool:
-    if not _page_contains_text(page, LOGIN_TIMEOUT_PAGE_TEXT, safe_page_content_fn=safe_page_content_fn):
+    if not any(
+        _page_contains_text(page, text, safe_page_content_fn=safe_page_content_fn)
+        for text in LOGIN_TIMEOUT_PAGE_TEXT_VARIANTS
+    ):
         return False
     return _page_contains_text(
         page, LOGIN_TIMEOUT_NAV_TEXT, safe_page_content_fn=safe_page_content_fn

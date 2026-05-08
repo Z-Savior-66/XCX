@@ -9,6 +9,7 @@ from typing import Any
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from desktop_py.core.diagnostic_log import log_session_offline, log_session_renew_failed
 from desktop_py.core.fetcher_support import (
     FetchError,
     ensure_account_session_available,
@@ -53,6 +54,8 @@ class SessionVerification:
     actual_account_name: str = ""
     feedback_url: str = ""
     reason: str = ""
+    branch: str = ""
+    page_url: str = ""
     should_retry: bool = False
     should_relogin: bool = False
     session_source: str = ""
@@ -175,11 +178,14 @@ def _has_backend_session_content(page: Any) -> bool:
 
 
 def verify_backend_session(page: Any, account: AccountConfig | None = None) -> SessionVerification:
+    current_url = str(getattr(page, "url", "") or "")
     if is_login_timeout_page(page, safe_page_content_fn=safe_page_content):
         return SessionVerification(
             False,
             status=SESSION_STATUS_EXPIRED,
             reason="页面显示登录超时",
+            branch="login_timeout_page",
+            page_url=current_url,
             should_relogin=True,
         )
 
@@ -204,6 +210,8 @@ def verify_backend_session(page: Any, account: AccountConfig | None = None) -> S
             actual_account_name=actual_account_name,
             feedback_url=feedback_url,
             reason="后台账号信息校验通过",
+            branch="backend_session_verified",
+            page_url=current_url,
         )
     if (
         _has_backend_session_url(page)
@@ -215,18 +223,24 @@ def verify_backend_session(page: Any, account: AccountConfig | None = None) -> S
             status=_verified_status_for_account(account),
             feedback_url=feedback_url,
             reason="测试页缺少可检查 DOM，按后台 URL 兼容",
+            branch="backend_url_without_dom",
+            page_url=current_url,
         )
     if _has_backend_session_url(page):
         return SessionVerification(
             False,
             status=SESSION_STATUS_EXPIRED,
             reason="仅检测到后台 URL/token，未检测到账号菜单或账号信息",
+            branch="backend_url_without_account_signals",
+            page_url=current_url,
             should_retry=True,
         )
     return SessionVerification(
         False,
         status=SESSION_STATUS_NEEDS_RELOGIN,
         reason="未检测到后台账号信息",
+        branch="missing_backend_account_signals",
+        page_url=current_url,
         should_relogin=True,
     )
 
@@ -305,6 +319,8 @@ def _probe_account_session_result(
             True,
             status=_verified_status_for_account(account),
             reason="兼容测试页：跳过后台导航探测",
+            branch="compatibility_page_without_goto",
+            page_url=str(getattr(page, "url", "") or ""),
         )
     _probe_account_session_url(
         page,
@@ -573,6 +589,7 @@ def validate_account_state_impl(
     )
     if state_path is None:
         mark_account_session_missing(account, profile_dir=normalized_profile_dir, reason="缺少可用登录态")
+        log_session_offline(account.name, "缺少可用登录态")
         return False
 
     with sync_playwright_fn() as playwright:
@@ -609,13 +626,28 @@ def validate_account_state_impl(
         actual_account_name=verification.actual_account_name,
         feedback_url=verification.feedback_url,
         reason=verification.reason,
+        branch=verification.branch,
+        page_url=verification.page_url,
         should_retry=verification.should_retry,
         should_relogin=verification.should_relogin,
         session_source=session_source_for_profile_dir(normalized_profile_dir),
     )
     apply_session_verification(account, verification, profile_dir=normalized_profile_dir)
     reason = f"：{verification.reason}" if not valid and verification.reason else ""
-    log_fn(logger, f"账号 {account.name} 登录态校验结果：{'有效' if valid else '无效'}{reason}")
+    extra = []
+    if verification.branch:
+        extra.append(f"判定分支={verification.branch}")
+    if verification.page_url:
+        extra.append(f"page.url={verification.page_url}")
+    extra_text = f"（{'；'.join(extra)}）" if extra else ""
+    log_fn(logger, f"账号 {account.name} 登录态校验结果：{'有效' if valid else '无效'}{reason}{extra_text}")
+    if not valid:
+        log_session_offline(
+            account.name,
+            verification.reason or "未检测到后台账号信息",
+            branch=verification.branch,
+            page_url=verification.page_url,
+        )
     return valid
 
 
@@ -649,6 +681,7 @@ def renew_account_state_impl(
     if state_path is None:
         mark_account_session_missing(account, profile_dir=normalized_profile_dir, reason="缺少可用登录态")
         log_fn(logger, f"账号 {account.name} 自动续期失败：缺少可用登录态。")
+        log_session_renew_failed(account.name, "缺少可用登录态", branch="missing_session_state")
         return False
 
     with sync_playwright_fn() as playwright:
@@ -669,6 +702,8 @@ def renew_account_state_impl(
                 False,
                 status=SESSION_STATUS_EXPIRED,
                 reason="等待后台页面超时",
+                branch="backend_page_timeout",
+                page_url=str(getattr(page, "url", "") or ""),
                 should_retry=True,
             )
         finally:
@@ -690,6 +725,8 @@ def renew_account_state_impl(
         actual_account_name=verification.actual_account_name,
         feedback_url=verification.feedback_url,
         reason=verification.reason,
+        branch=verification.branch,
+        page_url=verification.page_url,
         should_retry=verification.should_retry,
         should_relogin=verification.should_relogin,
         session_source=session_source_for_profile_dir(normalized_profile_dir),
@@ -699,5 +736,17 @@ def renew_account_state_impl(
         log_fn(logger, f"账号 {account.name} 自动续期成功。")
     else:
         reason = f"：{verification.reason}" if verification.reason else ""
-        log_fn(logger, f"账号 {account.name} 自动续期失败{reason}。")
+        extra = []
+        if verification.branch:
+            extra.append(f"判定分支={verification.branch}")
+        if verification.page_url:
+            extra.append(f"page.url={verification.page_url}")
+        extra_text = f"（{'；'.join(extra)}）" if extra else ""
+        log_fn(logger, f"账号 {account.name} 自动续期失败{reason}{extra_text}。")
+        log_session_renew_failed(
+            account.name,
+            verification.reason or "未识别到可用后台登录态",
+            branch=verification.branch,
+            page_url=verification.page_url,
+        )
     return renewed

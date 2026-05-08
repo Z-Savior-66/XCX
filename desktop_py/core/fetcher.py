@@ -21,11 +21,13 @@ from desktop_py.core.fetcher_page_strategy import (
     captures_indicate_non_empty_refunds,
     confirm_detail_deadline,
     confirm_empty_refund_list,
+    fetch_paginated_refund_list_captures,
     filter_detail_captures,
     has_pending_refund_signal,
     is_empty_refund_list,
     open_feedback_page,
     register_response_capture,
+    request_refund_list_page,
     resolve_frame_locator,
 )
 from desktop_py.core.fetcher_pipeline import (
@@ -364,6 +366,10 @@ def _fetch_account_in_page(
         business_iframe_selector_fn=business_iframe_selector,
         safe_page_content_fn=safe_page_content,
         fetch_notifications_fn=fetch_notifications,
+        fetch_paginated_refund_list_captures_fn=lambda **kwargs: fetch_paginated_refund_list_captures(
+            **kwargs,
+            request_refund_list_page_fn=request_refund_list_page,
+        ),
         is_empty_refund_list_fn=is_empty_refund_list,
         confirm_empty_refund_list_fn=lambda **kwargs: confirm_empty_refund_list(
             **kwargs,

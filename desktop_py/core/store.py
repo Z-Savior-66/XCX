@@ -35,6 +35,7 @@ def runtime_root() -> Path:
 
 PROJECT_ROOT = runtime_root()
 DATA_DIR = PROJECT_ROOT / "data"
+LOG_DIR = DATA_DIR / "logs"
 STORAGE_DIR = PROJECT_ROOT / "storage"
 PY_OUTPUT_DIR = PROJECT_ROOT / "output" / "desktop_py"
 ACCOUNTS_FILE = DATA_DIR / "accounts.json"
@@ -125,6 +126,7 @@ def _has_browser_lock_markers(path: Path) -> bool:
 
 def ensure_runtime_dirs() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     PY_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     if not ACCOUNTS_FILE.exists():
