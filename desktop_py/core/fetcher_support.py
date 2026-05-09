@@ -64,6 +64,7 @@ TARGET_NOTIFICATION_RESPONSE_URL_KEYWORDS = (
     "/wxamp/tools/wasysnotify",
     "wasysnotify",
 )
+WECHAT_MP_HOST = "mp.weixin.qq.com"
 
 
 class SafePageContent(Protocol):
@@ -386,6 +387,64 @@ def recover_login_timeout_page(
     if log_fn is not None:
         log_fn(logger, "后台登录超时页恢复失败：点击“小程序”后页面仍停留在超时提示。")
     return False
+
+
+def is_wechat_mp_root_page_url(url: str) -> bool:
+    parsed = urlparse((url or "").strip())
+    if parsed.netloc.lower() != WECHAT_MP_HOST:
+        return False
+    if parsed.path not in {"", "/"}:
+        return False
+    query = parse_qs(parsed.query)
+    return "token" not in query
+
+
+def recover_wechat_mp_root_page(
+    page: Page,
+    *,
+    wait_or_cancel_fn: WaitOrCancel,
+    logger: Logger | None = None,
+    log_fn: Callable[[Logger | None, str], None] | None = None,
+    is_cancelled: CancelCheck | None = None,
+) -> bool:
+    current_url = str(getattr(page, "url", "") or "")
+    if not is_wechat_mp_root_page_url(current_url):
+        return False
+
+    if log_fn is not None:
+        log_fn(logger, "检测到微信后台根页且未识别到账号信息，尝试点击左上角“小程序”恢复。")
+
+    clicked = False
+    for selector in MINI_PROGRAM_HOME_SELECTORS:
+        try:
+            target = page.locator(selector)
+            if target.count() == 0:
+                continue
+            try:
+                target.first.click(timeout=1000)
+            except Exception:
+                target.first.evaluate("e => e.click()")
+            clicked = True
+            break
+        except Exception:
+            continue
+
+    if not clicked:
+        if log_fn is not None:
+            log_fn(logger, "微信后台根页恢复失败：未找到左上角“小程序”入口。")
+        return False
+
+    for _ in range(15):
+        wait_or_cancel_fn(page, 300, is_cancelled)
+        next_url = str(getattr(page, "url", "") or "")
+        if not is_wechat_mp_root_page_url(next_url):
+            if log_fn is not None:
+                log_fn(logger, "微信后台根页恢复后已离开根页。")
+            return True
+
+    if log_fn is not None:
+        log_fn(logger, "微信后台根页恢复后页面仍停留在根页，将继续按当前页面复验。")
+    return True
 
 
 def _is_navigation_content_error(error: Exception) -> bool:

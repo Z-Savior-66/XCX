@@ -14,9 +14,11 @@ from desktop_py.core.fetcher_support import (
     FetchError,
     ensure_account_session_available,
     is_login_timeout_page,
+    is_wechat_mp_root_page_url,
     normalize_profile_dir,
     persist_storage_state,
     recover_login_timeout_page,
+    recover_wechat_mp_root_page,
     safe_page_content,
 )
 from desktop_py.core.models import (
@@ -311,6 +313,8 @@ def _probe_account_session_result(
     page: Any,
     account: AccountConfig,
     *,
+    logger: Logger | None = None,
+    log_fn: LogFn | None = None,
     wait_for_url_contains_fn: Callable[..., Any],
     timeout_ms: int,
 ) -> SessionVerification:
@@ -328,7 +332,21 @@ def _probe_account_session_result(
         wait_for_url_contains_fn=wait_for_url_contains_fn,
         timeout_ms=timeout_ms,
     )
-    return verify_backend_session(page, account)
+    verification = verify_backend_session(page, account)
+    if (
+        not verification.valid
+        and verification.branch == "missing_backend_account_signals"
+        and is_wechat_mp_root_page_url(verification.page_url)
+        and recover_wechat_mp_root_page(
+            page,
+            wait_or_cancel_fn=_wait_for_timeout,
+            logger=logger,
+            log_fn=log_fn,
+        )
+    ):
+        _wait_for_backend_session(page, wait_for_url_contains_fn=wait_for_url_contains_fn, timeout_ms=timeout_ms)
+        verification = verify_backend_session(page, account)
+    return verification
 
 
 def _create_state_file_context(
@@ -385,6 +403,8 @@ def _wait_for_login_success(
                 result = _probe_account_session_result(
                     verify_page,
                     temp_account,
+                    logger=logger,
+                    log_fn=log_fn,
                     wait_for_url_contains_fn=lambda current_page, keywords, timeout_ms=10000, is_cancelled=None: (
                         _wait_for_backend_session(
                             current_page,
@@ -599,6 +619,8 @@ def validate_account_state_impl(
             verification = _probe_account_session_result(
                 page,
                 account,
+                logger=logger,
+                log_fn=log_fn,
                 wait_for_url_contains_fn=wait_for_url_contains_fn,
                 timeout_ms=10000,
             )
@@ -692,6 +714,8 @@ def renew_account_state_impl(
             verification = _probe_account_session_result(
                 page,
                 account,
+                logger=logger,
+                log_fn=log_fn,
                 wait_for_url_contains_fn=wait_for_url_contains_fn,
                 timeout_ms=10000,
             )

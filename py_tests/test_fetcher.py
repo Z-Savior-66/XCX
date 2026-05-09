@@ -33,8 +33,10 @@ from desktop_py.core.fetcher_support import (
     classify_refund_response_type,
     extract_response_token,
     is_login_timeout_page,
+    is_wechat_mp_root_page_url,
     persist_storage_state,
     recover_login_timeout_page,
+    recover_wechat_mp_root_page,
     safe_page_content,
     wait_for_iframe_ready,
     wait_for_url_contains,
@@ -737,6 +739,40 @@ class FetcherTestCase(unittest.TestCase):
         self.assertTrue(recovered)
         self.assertTrue(page.recovered)
         self.assertIn("token=1", page.url)
+
+    def test_recover_wechat_mp_root_page_clicks_mini_program_entry(self):
+        class RootPage:
+            def __init__(self):
+                self.url = "https://mp.weixin.qq.com/"
+                self.recovered = False
+
+            def wait_for_timeout(self, timeout):
+                return None
+
+            def locator(self, selector, **kwargs):
+                if selector == "text=小程序":
+                    return FakeLocator(count=1, click_cb=self._recover)
+                return FakeLocator()
+
+            def _recover(self):
+                self.recovered = True
+                self.url = "https://mp.weixin.qq.com/wxamp/index/index?token=1"
+
+        page = RootPage()
+        recovered = recover_wechat_mp_root_page(
+            page,
+            wait_or_cancel_fn=lambda current_page, wait_ms, _is_cancelled=None: current_page.wait_for_timeout(wait_ms),
+        )
+
+        self.assertTrue(recovered)
+        self.assertTrue(page.recovered)
+        self.assertIn("token=1", page.url)
+
+    def test_is_wechat_mp_root_page_url_only_matches_plain_root_page(self):
+        self.assertTrue(is_wechat_mp_root_page_url("https://mp.weixin.qq.com/"))
+        self.assertTrue(is_wechat_mp_root_page_url("https://mp.weixin.qq.com/?lang=zh_CN"))
+        self.assertFalse(is_wechat_mp_root_page_url("https://mp.weixin.qq.com/wxamp/index/index?token=1"))
+        self.assertFalse(is_wechat_mp_root_page_url("https://mp.weixin.qq.com/?token=1"))
 
     def test_filter_target_unread_notifications_only_keeps_unread_target_titles(self):
         items = [
@@ -3264,6 +3300,135 @@ class FetcherTestCase(unittest.TestCase):
             branch="missing_backend_account_signals",
             page_url="https://mp.weixin.qq.com/",
         )
+
+    def test_validate_account_state_recovers_from_root_page_before_marking_offline(self):
+        account = AccountConfig(name="主账号", state_path="storage/shared.json")
+
+        class FakePageForValidation:
+            def __init__(self):
+                self.url = "https://mp.weixin.qq.com/"
+                self.recovered = False
+
+            def goto(self, _url, wait_until=None, timeout=None):
+                return None
+
+            def wait_for_timeout(self, timeout):
+                return None
+
+            def content(self):
+                if self.recovered:
+                    return '<div class="menu_box_account_info">账号设置</div><script>"nickName":"主账号"</script>'
+                return "<html></html>"
+
+            def locator(self, selector, **kwargs):
+                if selector == "text=小程序":
+                    return FakeLocator(count=1, click_cb=self._recover)
+                if self.recovered and selector == "div.menu_box_account_info_item[title='切换账号']":
+                    return FakeLocator(count=1)
+                return FakeLocator()
+
+            def get_by_text(self, text, exact=False):
+                return FakeLocator()
+
+            def close(self):
+                return None
+
+            def _recover(self):
+                self.recovered = True
+                self.url = "https://mp.weixin.qq.com/wxamp/index/index?token=1"
+
+        class FakeContextForValidation:
+            def __init__(self):
+                self.page = FakePageForValidation()
+
+            def new_page(self):
+                return self.page
+
+            def close(self):
+                return None
+
+        with (
+            patch("desktop_py.core.fetcher.sync_playwright") as mock_playwright,
+            patch(
+                "desktop_py.core.fetcher.create_browser_context",
+                return_value=(None, FakeContextForValidation()),
+            ),
+            patch("desktop_py.core.fetcher.Path.exists", return_value=True),
+            patch("desktop_py.core.fetcher.wait_for_url_contains", return_value=False),
+            patch("desktop_py.core.fetcher_session.log_session_offline") as mock_log_session_offline,
+        ):
+            mock_playwright.return_value.__enter__.return_value = object()
+
+            valid = validate_account_state(account)
+
+        self.assertTrue(valid)
+        mock_log_session_offline.assert_not_called()
+
+    def test_renew_account_state_recovers_from_root_page_before_marking_failure(self):
+        account = AccountConfig(name="主账号", state_path="storage/shared.json")
+
+        class FakePageForRenew:
+            def __init__(self):
+                self.url = "https://mp.weixin.qq.com/"
+                self.recovered = False
+
+            def goto(self, _url, wait_until=None, timeout=None):
+                return None
+
+            def wait_for_timeout(self, timeout):
+                return None
+
+            def content(self):
+                if self.recovered:
+                    return '<div class="menu_box_account_info">账号设置</div><script>"nickName":"主账号"</script>'
+                return "<html></html>"
+
+            def locator(self, selector, **kwargs):
+                if selector == "text=小程序":
+                    return FakeLocator(count=1, click_cb=self._recover)
+                if self.recovered and selector == "div.menu_box_account_info_item[title='切换账号']":
+                    return FakeLocator(count=1)
+                return FakeLocator()
+
+            def get_by_text(self, text, exact=False):
+                return FakeLocator()
+
+            def close(self):
+                return None
+
+            def _recover(self):
+                self.recovered = True
+                self.url = "https://mp.weixin.qq.com/wxamp/index/index?token=1"
+
+        class FakeContextForRenew:
+            def __init__(self):
+                self.page = FakePageForRenew()
+
+            def new_page(self):
+                return self.page
+
+            def storage_state(self, path=None, indexed_db=False):
+                return None
+
+            def close(self):
+                return None
+
+        with (
+            patch("desktop_py.core.fetcher.sync_playwright") as mock_playwright,
+            patch(
+                "desktop_py.core.fetcher.create_browser_context",
+                return_value=(None, FakeContextForRenew()),
+            ),
+            patch("desktop_py.core.fetcher.Path.exists", return_value=True),
+            patch("desktop_py.core.fetcher.wait_for_url_contains", return_value=False),
+            patch("desktop_py.core.fetcher_session.log_session_renew_failed") as mock_log_session_renew_failed,
+        ):
+            mock_playwright.return_value.__enter__.return_value = object()
+
+            valid = renew_account_state(account)
+
+        self.assertTrue(valid)
+        mock_log_session_renew_failed.assert_not_called()
 
     def test_renew_account_state_writes_failure_reason_to_log_file(self):
         account = AccountConfig(name="主账号", state_path="storage/shared.json")
