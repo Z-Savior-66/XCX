@@ -390,6 +390,18 @@ def _select_renew_switch_account_name(
     unique_names = _unique_switch_account_names(names)
     current_name = current_account_name.strip()
     previous_name = previous_account_name.strip()
+    reference_name = ""
+    if current_name in unique_names:
+        reference_name = current_name
+    elif previous_name in unique_names:
+        reference_name = previous_name
+    if reference_name:
+        start_index = unique_names.index(reference_name) + 1
+        for offset in range(len(unique_names)):
+            name = unique_names[(start_index + offset) % len(unique_names)]
+            if name != current_name:
+                return name
+        return ""
     for name in unique_names:
         if name != current_name and name != previous_name:
             return name

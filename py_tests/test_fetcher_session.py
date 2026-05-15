@@ -1,3 +1,4 @@
+from desktop_py.core.fetcher_session import _select_renew_switch_account_name
 from py_tests.fetcher_test_support import (
     AccountConfig,
     FakeLocator,
@@ -40,6 +41,44 @@ class FetcherSessionTestCase(FetcherTestBase):
                 }
             ),
             encoding="utf-8",
+        )
+
+    def test_select_renew_switch_account_name_rotates_all_candidates_before_repeating(self):
+        names = ["导入账号A", "导入账号B", "导入账号C"]
+
+        self.assertEqual(
+            _select_renew_switch_account_name(
+                names,
+                current_account_name="导入账号A",
+                previous_account_name="导入账号C",
+            ),
+            "导入账号B",
+        )
+        self.assertEqual(
+            _select_renew_switch_account_name(
+                names,
+                current_account_name="导入账号B",
+                previous_account_name="导入账号A",
+            ),
+            "导入账号C",
+        )
+        self.assertEqual(
+            _select_renew_switch_account_name(
+                names,
+                current_account_name="导入账号C",
+                previous_account_name="导入账号B",
+            ),
+            "导入账号A",
+        )
+
+    def test_select_renew_switch_account_name_does_not_repeat_single_current_account(self):
+        self.assertEqual(
+            _select_renew_switch_account_name(
+                ["导入账号A"],
+                current_account_name="导入账号A",
+                previous_account_name="导入账号C",
+            ),
+            "",
         )
 
     def test_analyze_storage_state_reports_missing_file(self):
