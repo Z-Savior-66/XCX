@@ -548,11 +548,14 @@ class MainWindow(QMainWindow):
     def _run_auto_renew(self) -> None:
         run_auto_renew_impl(
             self,
-            renew_account_state_fn=lambda account, log, profile_dir, headless: renew_account_state(
-                account,
-                log,
-                profile_dir,
-                headless,
+            renew_account_state_fn=lambda account, log, profile_dir, headless, switch_account_names=None: (
+                renew_account_state(
+                    account,
+                    log,
+                    profile_dir,
+                    headless,
+                    switch_account_names,
+                )
             ),
             close_all_group_runtimes_fn=close_all_group_runtimes,
         )

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
+from desktop_py.core.fetcher_rules import DEFAULT_NOTIFICATION_RULES, match_notification_title
 from desktop_py.core.fetcher_support import (
     FetchError,
     is_login_timeout_page,
@@ -12,15 +13,11 @@ from desktop_py.core.fetcher_support import (
 from desktop_py.core.models import AccountConfig
 from desktop_py.core.store import write_account_output_json, write_account_output_text
 
-NOTIFICATION_CENTER_URL_KEYWORD = "/wxamp/tools/wasysnotify"
-NOTIFICATION_CONTAINER_SELECTOR = "div.page_notice"
-NOTIFICATION_ITEM_SELECTOR = "dl.notice_item.js_msg_item"
-NOTIFICATION_ENTRY_TEXT = "通知中心"
-
-TARGET_NOTIFICATION_RULES = {
-    "annual_review": "小程序微信认证年审通知",
-    "copyright_complaint": "你的账号收到一条侵权投诉",
-}
+NOTIFICATION_CENTER_URL_KEYWORD = DEFAULT_NOTIFICATION_RULES.center_url_keyword
+NOTIFICATION_CONTAINER_SELECTOR = DEFAULT_NOTIFICATION_RULES.container_selector
+NOTIFICATION_ITEM_SELECTOR = DEFAULT_NOTIFICATION_RULES.item_selector
+NOTIFICATION_ENTRY_TEXT = DEFAULT_NOTIFICATION_RULES.entry_text
+TARGET_NOTIFICATION_RULES = DEFAULT_NOTIFICATION_RULES.target_titles
 
 Logger = Callable[[str], None]
 CancelCheck = Callable[[], bool]
@@ -58,9 +55,8 @@ def filter_target_unread_notifications(items: list[dict[str, Any]], account_name
         title = str(item.get("title", "") or "").strip()
         if not title:
             continue
-        for rule_name, expected_title in TARGET_NOTIFICATION_RULES.items():
-            if title != expected_title:
-                continue
+        match = match_notification_title(title)
+        if match.matched:
             matched.append(
                 {
                     "account_name": account_name,
@@ -69,10 +65,10 @@ def filter_target_unread_notifications(items: list[dict[str, Any]], account_name
                     "time_text": str(item.get("time_text", "") or "").strip(),
                     "content_text": str(item.get("content_text", "") or "").strip(),
                     "is_unread": True,
-                    "matched_rule": rule_name,
+                    "matched_rule": match.rule_name,
+                    "rule_version": match.rule_version,
                 }
             )
-            break
     return matched
 
 

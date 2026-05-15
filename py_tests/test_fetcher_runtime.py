@@ -6,7 +6,11 @@ from unittest.mock import patch
 from desktop_py.core.fetcher_runtime import (
     acquire_group_runtime,
     close_all_group_runtimes,
+    evaluate_runtime_health,
     invalidate_group_runtime,
+    record_runtime_failure,
+    record_runtime_success,
+    runtime_recycle_reason,
 )
 from desktop_py.core.models import AccountConfig
 
@@ -23,8 +27,15 @@ class FakeSyncManager:
 
 
 class FakePage:
+    def __init__(self):
+        self.closed = False
+
     def close(self):
+        self.closed = True
         return None
+
+    def is_closed(self):
+        return self.closed
 
 
 class FakeContext:
@@ -204,6 +215,59 @@ class FetcherRuntimeTestCase(unittest.TestCase):
         close_all_group_runtimes()
 
         self.assertEqual(context.storage_state_calls, [("storage\\a.json", True)])
+
+    def test_runtime_health_recycles_after_processed_threshold(self):
+        account = AccountConfig(name="账号A", state_path="storage/a.json")
+        runtime = acquire_group_runtime(
+            account,
+            headless=True,
+            profile_dir="",
+            sync_playwright_fn=sync_playwright_fn,
+            create_browser_context_fn=create_browser_context_fn,
+        )
+
+        for _ in range(5):
+            record_runtime_success(runtime)
+
+        health = evaluate_runtime_health(runtime, max_processed_count=5)
+
+        self.assertTrue(health.should_recycle)
+        self.assertIn("批量抓取达到 5 个账号", health.reason)
+        self.assertEqual(runtime_recycle_reason(runtime, max_processed_count=5), health.reason)
+
+    def test_runtime_health_recycles_after_consecutive_failures(self):
+        account = AccountConfig(name="账号A", state_path="storage/a.json")
+        runtime = acquire_group_runtime(
+            account,
+            headless=True,
+            profile_dir="",
+            sync_playwright_fn=sync_playwright_fn,
+            create_browser_context_fn=create_browser_context_fn,
+        )
+
+        record_runtime_failure(runtime, RuntimeError("第一次失败"))
+        record_runtime_failure(runtime, RuntimeError("第二次失败"))
+
+        health = evaluate_runtime_health(runtime)
+
+        self.assertTrue(health.should_recycle)
+        self.assertIn("连续错误 2 次", health.reason)
+
+    def test_runtime_health_detects_closed_page(self):
+        account = AccountConfig(name="账号A", state_path="storage/a.json")
+        runtime = acquire_group_runtime(
+            account,
+            headless=True,
+            profile_dir="",
+            sync_playwright_fn=sync_playwright_fn,
+            create_browser_context_fn=create_browser_context_fn,
+        )
+        runtime.page.close()
+
+        health = evaluate_runtime_health(runtime)
+
+        self.assertTrue(health.should_recycle)
+        self.assertIn("页面已关闭", health.reason)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,38 @@
+[
+  {
+    "url": "https://game.weixin.qq.com/cgi-bin/gamewxagbdatawap/getuserrefundchecklist?token=other-token&cid=old",
+    "status": 200,
+    "content_type": "application/json",
+    "token": "other-token",
+    "response_type": "detail",
+    "body": {
+      "data": {
+        "user_refund_check_list": [
+          {
+            "ctrl_info": {
+              "appeal_deadline_time": "2026-05-18 08:00:00"
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "url": "https://game.weixin.qq.com/cgi-bin/gamewxagbdatawap/getuserrefundchecklist?token=golden-token&cid=current",
+    "status": 200,
+    "content_type": "application/json",
+    "token": "golden-token",
+    "response_type": "detail",
+    "body": {
+      "data": {
+        "user_refund_check_list": [
+          {
+            "ctrl_info": {
+              "appeal_deadline_time": "2026-05-23 12:45:00"
+            }
+          }
+        ]
+      }
+    }
+  }
+]

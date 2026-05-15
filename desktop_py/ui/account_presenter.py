@@ -5,10 +5,6 @@ from datetime import datetime, timedelta
 from desktop_py.core.models import SESSION_STATUS_VALID, AccountConfig, FetchResult
 
 
-def is_no_deadline_note(note: str) -> bool:
-    return "未在详情页文本中提取到处理截止时间" in note
-
-
 def next_auto_fetch_push_interval_ms(now: datetime | None = None) -> int:
     current = now or datetime.now()
     target = current.replace(hour=9, minute=0, second=0, microsecond=0)
@@ -62,7 +58,7 @@ def is_no_business_page_note(note: str) -> bool:
 
 
 def is_expected_empty_result_note(note: str) -> bool:
-    return is_no_business_page_note(note) or is_no_deadline_note(note) or "当前账号无待处理申请" in note
+    return is_no_business_page_note(note) or "当前账号无待处理申请" in note
 
 
 def display_deadline_text(account: AccountConfig) -> str:

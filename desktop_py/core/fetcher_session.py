@@ -1,352 +1,40 @@
 from __future__ import annotations
 
-import re
+import shutil
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from desktop_py.core.diagnostic_log import log_session_offline, log_session_renew_failed
 from desktop_py.core.fetcher_support import (
     FetchError,
     ensure_account_session_available,
-    is_login_timeout_page,
-    is_wechat_mp_root_page_url,
     normalize_profile_dir,
     persist_storage_state,
-    recover_login_timeout_page,
-    recover_wechat_mp_root_page,
-    safe_page_content,
 )
 from desktop_py.core.models import (
-    SESSION_SOURCE_PROFILE,
-    SESSION_SOURCE_STATE_FILE,
     SESSION_STATUS_EXPIRED,
-    SESSION_STATUS_MISSING,
-    SESSION_STATUS_NEEDS_RELOGIN,
-    SESSION_STATUS_STALE,
     SESSION_STATUS_VALID,
     AccountConfig,
 )
 from desktop_py.core.session_links import canonical_feedback_url, refresh_account_feedback_url
-
-BACKEND_SESSION_URL_KEYWORDS = ("token=", "/wxamp/index/index", "pluginRedirect/gameFeedback")
-BACKEND_SESSION_CONTENT_KEYWORDS = (
-    '"nickName"',
-    "current_login",
-    "switch_account_dialog",
-    "menu_box_account_info",
-    "切换账号",
+from desktop_py.core.session_probe import (
+    SessionVerification,
+    _has_backend_session,
+    _now_text,
+    _probe_account_session_result,
+    _wait_for_backend_session,
+    apply_session_verification,
+    mark_account_session_missing,
+    session_source_for_profile_dir,
+    verify_backend_session,
 )
-SESSION_STALE_AFTER = timedelta(days=3)
-SESSION_TIME_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M")
 
 Logger = Callable[[str], None]
 CancelCheck = Callable[[], bool]
 LogFn = Callable[[Logger | None, str], None]
-
-
-@dataclass(frozen=True)
-class SessionVerification:
-    valid: bool
-    status: str = SESSION_STATUS_EXPIRED
-    actual_account_name: str = ""
-    feedback_url: str = ""
-    reason: str = ""
-    branch: str = ""
-    page_url: str = ""
-    should_retry: bool = False
-    should_relogin: bool = False
-    session_source: str = ""
-
-
-def session_source_for_profile_dir(profile_dir: str) -> str:
-    return SESSION_SOURCE_PROFILE if profile_dir.strip() else SESSION_SOURCE_STATE_FILE
-
-
-def _now_text() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _parse_datetime(value: str) -> datetime | None:
-    text = value.strip()
-    if not text:
-        return None
-    for fmt in SESSION_TIME_FORMATS:
-        try:
-            return datetime.strptime(text, fmt)
-        except ValueError:
-            continue
-    return None
-
-
-def _verified_status_for_account(account: AccountConfig | None) -> str:
-    if account is None:
-        return SESSION_STATUS_VALID
-    latest_activity = (
-        _parse_datetime(account.last_session_renewed_at)
-        or _parse_datetime(account.last_login_at)
-        or _parse_datetime(account.last_session_verified_at)
-    )
-    if latest_activity is None:
-        return SESSION_STATUS_VALID
-    if datetime.now() - latest_activity >= SESSION_STALE_AFTER:
-        return SESSION_STATUS_STALE
-    return SESSION_STATUS_VALID
-
-
-def apply_session_verification(
-    account: AccountConfig,
-    verification: SessionVerification,
-    *,
-    profile_dir: str = "",
-    verified_at: str | None = None,
-    renewed: bool = False,
-) -> None:
-    timestamp = verified_at or _now_text()
-    account.session_status = verification.status
-    account.session_source = verification.session_source or session_source_for_profile_dir(profile_dir)
-    account.last_session_verified_at = timestamp
-    account.last_session_error = "" if verification.valid else verification.reason
-    if verification.actual_account_name.strip():
-        account.last_actual_account_name = verification.actual_account_name.strip()
-    if verification.feedback_url:
-        account.feedback_url = verification.feedback_url
-    if renewed:
-        account.last_session_renewed_at = timestamp
-
-
-def mark_account_session_missing(account: AccountConfig, *, profile_dir: str = "", reason: str = "") -> None:
-    account.session_status = SESSION_STATUS_MISSING
-    account.session_source = session_source_for_profile_dir(profile_dir)
-    account.last_session_error = reason.strip()
-
-
-def _wait_for_timeout(current_page: Any, wait_ms: int, _cancelled: CancelCheck | None = None) -> None:
-    current_page.wait_for_timeout(wait_ms)
-
-
-def _has_backend_session_url(page: Any) -> bool:
-    return any(keyword in str(getattr(page, "url", "") or "") for keyword in BACKEND_SESSION_URL_KEYWORDS)
-
-
-def _extract_account_name_from_html(html: str) -> str:
-    try:
-        matched = re.search(r'"nickName":"([^"]+)"', html)
-    except Exception:
-        return ""
-    if not matched:
-        return ""
-    return matched.group(1).strip()
-
-
-def _locator_count(page: Any, selector: str, **kwargs: Any) -> int:
-    try:
-        return int(page.locator(selector, **kwargs).count())
-    except Exception:
-        return 0
-
-
-def _has_backend_session_locator(page: Any) -> bool:
-    if not callable(getattr(page, "locator", None)):
-        return False
-    if _locator_count(page, ".switch_account_dialog .account_item") > 0:
-        return True
-    if _locator_count(page, "div.menu_box_account_info_item[title='切换账号']") > 0:
-        return True
-    if _locator_count(page, ".menu_box_account_info_item", has_text="切换账号") > 0:
-        return True
-    if _locator_count(page, "[title='切换账号']") > 0:
-        return True
-    try:
-        return bool(page.get_by_text("切换账号", exact=True).count() > 0)
-    except Exception:
-        return False
-
-
-def _has_backend_session_content(page: Any) -> bool:
-    if not callable(getattr(page, "content", None)):
-        return False
-    if is_login_timeout_page(page, safe_page_content_fn=safe_page_content):
-        return False
-    try:
-        html = safe_page_content(page, timeout_ms=1500)
-    except Exception:
-        return False
-    return any(keyword in html for keyword in BACKEND_SESSION_CONTENT_KEYWORDS)
-
-
-def verify_backend_session(page: Any, account: AccountConfig | None = None) -> SessionVerification:
-    current_url = str(getattr(page, "url", "") or "")
-    if is_login_timeout_page(page, safe_page_content_fn=safe_page_content):
-        return SessionVerification(
-            False,
-            status=SESSION_STATUS_EXPIRED,
-            reason="页面显示登录超时",
-            branch="login_timeout_page",
-            page_url=current_url,
-            should_relogin=True,
-        )
-
-    html = ""
-    if callable(getattr(page, "content", None)):
-        try:
-            html = safe_page_content(page, timeout_ms=2000)
-        except Exception:
-            html = ""
-
-    actual_account_name = _extract_account_name_from_html(html)
-    content_valid = any(keyword in html for keyword in BACKEND_SESSION_CONTENT_KEYWORDS)
-    locator_valid = _has_backend_session_locator(page)
-    feedback_url = ""
-    if _has_backend_session_url(page):
-        feedback_url = canonical_feedback_url(str(getattr(page, "url", "") or ""))
-
-    if actual_account_name or locator_valid or content_valid:
-        return SessionVerification(
-            True,
-            status=_verified_status_for_account(account),
-            actual_account_name=actual_account_name,
-            feedback_url=feedback_url,
-            reason="后台账号信息校验通过",
-            branch="backend_session_verified",
-            page_url=current_url,
-        )
-    if (
-        _has_backend_session_url(page)
-        and not callable(getattr(page, "content", None))
-        and not callable(getattr(page, "locator", None))
-    ):
-        return SessionVerification(
-            True,
-            status=_verified_status_for_account(account),
-            feedback_url=feedback_url,
-            reason="测试页缺少可检查 DOM，按后台 URL 兼容",
-            branch="backend_url_without_dom",
-            page_url=current_url,
-        )
-    if _has_backend_session_url(page):
-        return SessionVerification(
-            False,
-            status=SESSION_STATUS_EXPIRED,
-            reason="仅检测到后台 URL/token，未检测到账号菜单或账号信息",
-            branch="backend_url_without_account_signals",
-            page_url=current_url,
-            should_retry=True,
-        )
-    return SessionVerification(
-        False,
-        status=SESSION_STATUS_NEEDS_RELOGIN,
-        reason="未检测到后台账号信息",
-        branch="missing_backend_account_signals",
-        page_url=current_url,
-        should_relogin=True,
-    )
-
-
-def _has_backend_session(page: Any) -> bool:
-    return verify_backend_session(page).valid
-
-
-def _wait_for_backend_session(
-    page: Any,
-    *,
-    wait_for_url_contains_fn: Callable[..., Any],
-    timeout_ms: int,
-) -> bool:
-    try:
-        wait_for_url_contains_fn(page, BACKEND_SESSION_URL_KEYWORDS, timeout_ms=timeout_ms)
-    except PlaywrightTimeoutError:
-        pass
-    return _has_backend_session(page)
-
-
-def _probe_account_session_url(
-    page: Any,
-    url: str,
-    *,
-    wait_for_url_contains_fn: Callable[..., Any],
-    timeout_ms: int,
-) -> bool:
-    try:
-        page.goto(url, wait_until="domcontentloaded", timeout=60000)
-    except PlaywrightTimeoutError:
-        if recover_login_timeout_page(
-            page,
-            safe_page_content_fn=safe_page_content,
-            wait_or_cancel_fn=_wait_for_timeout,
-        ):
-            return _wait_for_backend_session(
-                page, wait_for_url_contains_fn=wait_for_url_contains_fn, timeout_ms=timeout_ms
-            )
-        return _has_backend_session(page)
-    if _wait_for_backend_session(page, wait_for_url_contains_fn=wait_for_url_contains_fn, timeout_ms=timeout_ms):
-        return True
-    if recover_login_timeout_page(
-        page,
-        safe_page_content_fn=safe_page_content,
-        wait_or_cancel_fn=_wait_for_timeout,
-    ):
-        return _wait_for_backend_session(page, wait_for_url_contains_fn=wait_for_url_contains_fn, timeout_ms=timeout_ms)
-    return _has_backend_session(page)
-
-
-def _probe_account_session(
-    page: Any,
-    account: AccountConfig,
-    *,
-    wait_for_url_contains_fn: Callable[..., Any],
-    timeout_ms: int,
-) -> bool:
-    return _probe_account_session_result(
-        page,
-        account,
-        wait_for_url_contains_fn=wait_for_url_contains_fn,
-        timeout_ms=timeout_ms,
-    ).valid
-
-
-def _probe_account_session_result(
-    page: Any,
-    account: AccountConfig,
-    *,
-    logger: Logger | None = None,
-    log_fn: LogFn | None = None,
-    wait_for_url_contains_fn: Callable[..., Any],
-    timeout_ms: int,
-) -> SessionVerification:
-    if not callable(getattr(page, "goto", None)):
-        return SessionVerification(
-            True,
-            status=_verified_status_for_account(account),
-            reason="兼容测试页：跳过后台导航探测",
-            branch="compatibility_page_without_goto",
-            page_url=str(getattr(page, "url", "") or ""),
-        )
-    _probe_account_session_url(
-        page,
-        account.home_url,
-        wait_for_url_contains_fn=wait_for_url_contains_fn,
-        timeout_ms=timeout_ms,
-    )
-    verification = verify_backend_session(page, account)
-    if (
-        not verification.valid
-        and verification.branch == "missing_backend_account_signals"
-        and is_wechat_mp_root_page_url(verification.page_url)
-        and recover_wechat_mp_root_page(
-            page,
-            wait_or_cancel_fn=_wait_for_timeout,
-            logger=logger,
-            log_fn=log_fn,
-        )
-    ):
-        _wait_for_backend_session(page, wait_for_url_contains_fn=wait_for_url_contains_fn, timeout_ms=timeout_ms)
-        verification = verify_backend_session(page, account)
-    return verification
 
 
 def _create_state_file_context(
@@ -403,8 +91,6 @@ def _wait_for_login_success(
                 result = _probe_account_session_result(
                     verify_page,
                     temp_account,
-                    logger=logger,
-                    log_fn=log_fn,
                     wait_for_url_contains_fn=lambda current_page, keywords, timeout_ms=10000, is_cancelled=None: (
                         _wait_for_backend_session(
                             current_page,
@@ -609,7 +295,6 @@ def validate_account_state_impl(
     )
     if state_path is None:
         mark_account_session_missing(account, profile_dir=normalized_profile_dir, reason="缺少可用登录态")
-        log_session_offline(account.name, "缺少可用登录态")
         return False
 
     with sync_playwright_fn() as playwright:
@@ -619,8 +304,6 @@ def validate_account_state_impl(
             verification = _probe_account_session_result(
                 page,
                 account,
-                logger=logger,
-                log_fn=log_fn,
                 wait_for_url_contains_fn=wait_for_url_contains_fn,
                 timeout_ms=10000,
             )
@@ -648,29 +331,141 @@ def validate_account_state_impl(
         actual_account_name=verification.actual_account_name,
         feedback_url=verification.feedback_url,
         reason=verification.reason,
-        branch=verification.branch,
-        page_url=verification.page_url,
         should_retry=verification.should_retry,
         should_relogin=verification.should_relogin,
         session_source=session_source_for_profile_dir(normalized_profile_dir),
     )
     apply_session_verification(account, verification, profile_dir=normalized_profile_dir)
     reason = f"：{verification.reason}" if not valid and verification.reason else ""
-    extra = []
-    if verification.branch:
-        extra.append(f"判定分支={verification.branch}")
-    if verification.page_url:
-        extra.append(f"page.url={verification.page_url}")
-    extra_text = f"（{'；'.join(extra)}）" if extra else ""
-    log_fn(logger, f"账号 {account.name} 登录态校验结果：{'有效' if valid else '无效'}{reason}{extra_text}")
-    if not valid:
-        log_session_offline(
-            account.name,
-            verification.reason or "未检测到后台账号信息",
-            branch=verification.branch,
-            page_url=verification.page_url,
-        )
+    log_fn(logger, f"账号 {account.name} 登录态校验结果：{'有效' if valid else '无效'}{reason}")
     return valid
+
+
+def _renew_temp_state_path(state_path: Path) -> Path:
+    return state_path.with_name(f".{state_path.name}.renew.tmp")
+
+
+def _backup_state_path(state_path: Path) -> Path:
+    return state_path.with_name(f"{state_path.name}.bak")
+
+
+def _replace_state_with_verified_temp(temp_state_path: Path, state_path: Path) -> None:
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    if state_path.exists():
+        shutil.copy2(state_path, _backup_state_path(state_path))
+    temp_state_path.replace(state_path)
+
+
+def _unique_switch_account_names(names: list[str] | None) -> list[str]:
+    unique_names: list[str] = []
+    for name in names or []:
+        normalized_name = str(name).strip()
+        if normalized_name and normalized_name not in unique_names:
+            unique_names.append(normalized_name)
+    return unique_names
+
+
+def _select_renew_switch_account_name(
+    names: list[str] | None,
+    *,
+    current_account_name: str = "",
+    previous_account_name: str = "",
+) -> str:
+    unique_names = _unique_switch_account_names(names)
+    current_name = current_account_name.strip()
+    previous_name = previous_account_name.strip()
+    for name in unique_names:
+        if name != current_name and name != previous_name:
+            return name
+    for name in unique_names:
+        if name != current_name:
+            return name
+    return ""
+
+
+def _visible_switch_account_names_from_error(error_message: str) -> list[str]:
+    marker = "当前可见账号："
+    if marker not in error_message:
+        return []
+    names_text = error_message.split(marker, 1)[1].strip().rstrip("。.")
+    return _unique_switch_account_names(names_text.split("、"))
+
+
+def _switch_to_renew_account(
+    page: Any,
+    switch_account_name: str,
+    *,
+    account: AccountConfig,
+    logger: Logger | None,
+    log_fn: LogFn,
+    switch_to_account_fn: Callable[..., Any],
+    current_account_name: str = "",
+    previous_account_name: str = "",
+) -> None:
+    log_fn(logger, f"自动续期准备切换到轮换账号：{switch_account_name}。")
+    try:
+        switch_to_account_fn(page, switch_account_name, account.home_url, logger)
+        return
+    except Exception as exc:
+        visible_names = _visible_switch_account_names_from_error(str(exc))
+        retry_account_name = _select_renew_switch_account_name(
+            visible_names,
+            current_account_name=current_account_name,
+            previous_account_name=previous_account_name,
+        )
+        if not retry_account_name or retry_account_name == switch_account_name:
+            raise FetchError(f"自动续期轮换切换失败：{exc}") from exc
+
+    log_fn(logger, f"自动续期轮换账号不可见，改为切换到当前可见账号：{retry_account_name}。")
+    try:
+        switch_to_account_fn(page, retry_account_name, account.home_url, logger)
+    except Exception as exc:
+        raise FetchError(f"自动续期轮换切换失败：{exc}") from exc
+
+
+def _verify_saved_state_file(
+    playwright: Any,
+    account: AccountConfig,
+    state_path: Path,
+    *,
+    headless: bool,
+    create_browser_context_fn: Callable[..., tuple[Any | None, Any]],
+    wait_for_url_contains_fn: Callable[..., Any],
+    close_page_fn: Callable[[Any], None],
+    close_context_and_browser_fn: Callable[..., None],
+) -> SessionVerification:
+    verify_account = AccountConfig(
+        name=account.name,
+        state_path=str(state_path),
+        is_entry_account=account.is_entry_account,
+        feedback_url="",
+        home_url=account.home_url,
+        enabled=account.enabled,
+    )
+    verify_browser, verify_context = create_browser_context_fn(playwright, verify_account, headless, "")
+    verify_page = verify_context.new_page()
+    try:
+        return _probe_account_session_result(
+            verify_page,
+            verify_account,
+            wait_for_url_contains_fn=wait_for_url_contains_fn,
+            timeout_ms=10000,
+        )
+    except PlaywrightTimeoutError:
+        return SessionVerification(
+            False,
+            status=SESSION_STATUS_EXPIRED,
+            reason="保存后复验等待后台页面超时",
+            should_retry=True,
+        )
+    finally:
+        close_page_fn(verify_page)
+        close_context_and_browser_fn(
+            verify_context,
+            verify_browser,
+            state_path=None,
+            persist_state=False,
+        )
 
 
 def renew_account_state_impl(
@@ -688,6 +483,8 @@ def renew_account_state_impl(
     close_page_fn: Callable[[Any], None],
     close_context_and_browser_fn: Callable[..., None],
     log_fn: LogFn,
+    renew_switch_account_names: list[str] | None = None,
+    switch_to_account_fn: Callable[..., Any] | None = None,
 ) -> bool:
     log_fn(logger, f"开始自动续期账号 {account.name}。")
     normalized_profile_dir = normalize_profile_dir(
@@ -703,45 +500,96 @@ def renew_account_state_impl(
     if state_path is None:
         mark_account_session_missing(account, profile_dir=normalized_profile_dir, reason="缺少可用登录态")
         log_fn(logger, f"账号 {account.name} 自动续期失败：缺少可用登录态。")
-        log_session_renew_failed(account.name, "缺少可用登录态", branch="missing_session_state")
         return False
 
     with sync_playwright_fn() as playwright:
         browser, context = create_browser_context_fn(playwright, account, headless, normalized_profile_dir)
         page = context.new_page()
         renewed = False
+        temp_state_path = _renew_temp_state_path(Path(state_path))
         try:
             verification = _probe_account_session_result(
                 page,
                 account,
-                logger=logger,
-                log_fn=log_fn,
                 wait_for_url_contains_fn=wait_for_url_contains_fn,
                 timeout_ms=10000,
             )
-            renewed = verification.valid
+            if verification.valid:
+                try:
+                    switch_account_name = _select_renew_switch_account_name(
+                        renew_switch_account_names,
+                        current_account_name=verification.actual_account_name,
+                        previous_account_name=account.last_actual_account_name,
+                    )
+                    if switch_account_name and callable(switch_to_account_fn):
+                        _switch_to_renew_account(
+                            page,
+                            switch_account_name,
+                            account=account,
+                            logger=logger,
+                            log_fn=log_fn,
+                            switch_to_account_fn=switch_to_account_fn,
+                            current_account_name=verification.actual_account_name,
+                            previous_account_name=account.last_actual_account_name,
+                        )
+                    persist_storage_state(
+                        context,
+                        str(temp_state_path),
+                        page=page,
+                        logger=logger,
+                        log_fn=log_fn,
+                        wait_or_cancel_fn=wait_or_cancel_fn,
+                    )
+                    verification = _verify_saved_state_file(
+                        playwright,
+                        account,
+                        temp_state_path,
+                        headless=headless,
+                        create_browser_context_fn=create_browser_context_fn,
+                        wait_for_url_contains_fn=wait_for_url_contains_fn,
+                        close_page_fn=close_page_fn,
+                        close_context_and_browser_fn=close_context_and_browser_fn,
+                    )
+                    renewed = verification.valid
+                    if renewed:
+                        _replace_state_with_verified_temp(temp_state_path, Path(state_path))
+                        log_fn(logger, "续期登录态已通过保存后复验并替换正式文件。")
+                    else:
+                        verification = SessionVerification(
+                            False,
+                            status=verification.status,
+                            actual_account_name=verification.actual_account_name,
+                            feedback_url=verification.feedback_url,
+                            reason=f"保存后复验失败：{verification.reason}",
+                            should_retry=verification.should_retry,
+                            should_relogin=verification.should_relogin,
+                        )
+                except Exception as exc:
+                    renewed = False
+                    reason = str(exc)
+                    if not reason.startswith("自动续期轮换切换失败"):
+                        reason = f"保存续期登录态失败：{exc}"
+                    verification = SessionVerification(
+                        False,
+                        status=SESSION_STATUS_EXPIRED,
+                        reason=reason,
+                        should_retry=True,
+                    )
         except PlaywrightTimeoutError:
             renewed = False
             verification = SessionVerification(
                 False,
                 status=SESSION_STATUS_EXPIRED,
                 reason="等待后台页面超时",
-                branch="backend_page_timeout",
-                page_url=str(getattr(page, "url", "") or ""),
                 should_retry=True,
             )
         finally:
+            try:
+                temp_state_path.unlink(missing_ok=True)
+            except OSError:
+                pass
             close_page_fn(page)
-            close_context_and_browser_fn(
-                context,
-                browser,
-                state_path=state_path if renewed else None,
-                persist_state=renewed,
-                page=page,
-                logger=logger,
-                log_fn=log_fn,
-                wait_or_cancel_fn=wait_or_cancel_fn,
-            )
+            close_context_and_browser_fn(context, browser, state_path=None, persist_state=False)
 
     verification = SessionVerification(
         verification.valid,
@@ -749,8 +597,6 @@ def renew_account_state_impl(
         actual_account_name=verification.actual_account_name,
         feedback_url=verification.feedback_url,
         reason=verification.reason,
-        branch=verification.branch,
-        page_url=verification.page_url,
         should_retry=verification.should_retry,
         should_relogin=verification.should_relogin,
         session_source=session_source_for_profile_dir(normalized_profile_dir),
@@ -760,17 +606,5 @@ def renew_account_state_impl(
         log_fn(logger, f"账号 {account.name} 自动续期成功。")
     else:
         reason = f"：{verification.reason}" if verification.reason else ""
-        extra = []
-        if verification.branch:
-            extra.append(f"判定分支={verification.branch}")
-        if verification.page_url:
-            extra.append(f"page.url={verification.page_url}")
-        extra_text = f"（{'；'.join(extra)}）" if extra else ""
-        log_fn(logger, f"账号 {account.name} 自动续期失败{reason}{extra_text}。")
-        log_session_renew_failed(
-            account.name,
-            verification.reason or "未识别到可用后台登录态",
-            branch=verification.branch,
-            page_url=verification.page_url,
-        )
+        log_fn(logger, f"账号 {account.name} 自动续期失败{reason}。")
     return renewed

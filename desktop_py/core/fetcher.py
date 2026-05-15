@@ -283,7 +283,7 @@ def list_switchable_accounts(page: Page, home_url: str = "", logger: Logger | No
     )
 
 
-def _wait_for_locator_items(page: Page, locator: Locator, timeout_ms: int = 1800, interval_ms: int = 200) -> bool:
+def _wait_for_locator_items(page: Page, locator: Locator, timeout_ms: int = 5000, interval_ms: int = 250) -> bool:
     return wait_for_locator_items_impl(page, locator, timeout_ms=timeout_ms, interval_ms=interval_ms)
 
 
@@ -423,7 +423,7 @@ def fetch_account(
             close_context_and_browser_fn=_close_context_and_browser,
             log_fn=_log,
         ),
-        renew_account_state_fn=lambda current_account, logger=None, profile_dir="", headless=True: (
+        renew_account_state_fn=lambda current_account, logger=None, profile_dir="", headless=True, renew_switch_account_names=None: (
             renew_account_state_impl(
                 current_account,
                 logger=logger,
@@ -438,6 +438,8 @@ def fetch_account(
                 close_page_fn=_close_page,
                 close_context_and_browser_fn=_close_context_and_browser,
                 log_fn=_log,
+                renew_switch_account_names=renew_switch_account_names,
+                switch_to_account_fn=switch_to_account,
             )
         ),
         fetch_account_in_page_fn=_fetch_account_in_page,
@@ -531,6 +533,7 @@ def renew_account_state(
     logger: Logger | None = None,
     profile_dir: str = "",
     headless: bool = True,
+    renew_switch_account_names: list[str] | None = None,
 ) -> bool:
     return _run_blocking_fetch_call(
         lambda: renew_account_state_impl(
@@ -547,5 +550,7 @@ def renew_account_state(
             close_page_fn=_close_page,
             close_context_and_browser_fn=_close_context_and_browser,
             log_fn=_log,
+            renew_switch_account_names=renew_switch_account_names,
+            switch_to_account_fn=switch_to_account,
         )
     )

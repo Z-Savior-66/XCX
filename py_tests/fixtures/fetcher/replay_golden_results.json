@@ -1,0 +1,44 @@
+{
+  "normal_detail": {
+    "account_name": "脱敏账号",
+    "ok": true,
+    "actual_account_name": "脱敏测试账号",
+    "deadline_text": "2026-05-20 18:30:00",
+    "deadline_source": "iframe-label",
+    "matched_path": "$iframeText.处理截止时间",
+    "page_url": "https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?action=plugin_redirect&token=golden-token",
+    "note": "已完成详情页抓取。"
+  },
+  "empty_list": {
+    "account_name": "脱敏账号",
+    "ok": true,
+    "actual_account_name": "脱敏测试账号",
+    "deadline_text": "",
+    "deadline_source": "",
+    "matched_path": "",
+    "page_url": "https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?action=plugin_redirect&token=golden-token",
+    "note": "当前账号无待处理申请。"
+  },
+  "changed_response_field": {
+    "deadline_text": "2026-05-22 09:15:00"
+  },
+  "missing_iframe_error": {
+    "error_type": "FetchError",
+    "message": "页面未出现业务 iframe，可能是链接失效、无权限或登录态失效。"
+  },
+  "login_timeout": {
+    "is_login_timeout": true
+  },
+  "notification_failure": {
+    "ok": false,
+    "notifications": [],
+    "summary": "通知中心抓取失败：未找到通知中心入口。",
+    "page_url": "https://mp.weixin.qq.com/"
+  },
+  "cross_account_token": {
+    "deadline_text": "2026-05-23 12:45:00",
+    "filtered_tokens": [
+      "golden-token"
+    ]
+  }
+}

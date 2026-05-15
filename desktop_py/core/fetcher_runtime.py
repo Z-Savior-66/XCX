@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import atexit
 import threading
+import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,17 @@ class GroupRuntime:
     current_account_name: str = ""
     home_ready: bool = False
     last_error: str = ""
+    created_at: float = field(default_factory=time.monotonic)
+    processed_count: int = 0
+    failure_count: int = 0
+    last_recycle_reason: str = ""
+
+
+@dataclass(frozen=True)
+class RuntimeHealth:
+    score: int
+    should_recycle: bool
+    reason: str = ""
 
 
 _RUNTIME_LOCK = threading.RLock()
@@ -179,6 +191,7 @@ def invalidate_group_runtime(runtime: GroupRuntime, message: str = "") -> None:
         if current is runtime:
             _GROUP_RUNTIMES.pop(runtime.group_key, None)
         runtime.last_error = message.strip()
+        runtime.last_recycle_reason = message.strip()
         runtime.valid = False
         runtime.busy = False
         _RUNTIME_CONDITION.notify_all()
@@ -216,6 +229,79 @@ def update_runtime_current_account_name(runtime: GroupRuntime, account_name: str
         setattr(runtime.page, "_current_account_name_cache", runtime.current_account_name)
     except Exception:
         pass
+
+
+def _object_is_closed(target: Any) -> bool:
+    is_closed = getattr(target, "is_closed", None)
+    if not callable(is_closed):
+        return False
+    try:
+        return bool(is_closed())
+    except Exception:
+        return False
+
+
+def record_runtime_success(runtime: Any) -> None:
+    runtime.processed_count = int(getattr(runtime, "processed_count", 0) or 0) + 1
+    runtime.failure_count = 0
+
+
+def record_runtime_failure(runtime: Any, exc: Exception) -> None:
+    runtime.failure_count = int(getattr(runtime, "failure_count", 0) or 0) + 1
+    runtime.last_error = str(exc).strip()
+
+
+def evaluate_runtime_health(
+    runtime: Any,
+    *,
+    max_processed_count: int = 5,
+    max_failure_count: int = 2,
+    max_age_seconds: int = 30 * 60,
+) -> RuntimeHealth:
+    if not bool(getattr(runtime, "valid", True)):
+        reason = str(
+            getattr(runtime, "last_recycle_reason", "") or getattr(runtime, "last_error", "") or "运行时已失效"
+        )
+        return RuntimeHealth(score=0, should_recycle=True, reason=reason)
+    if _object_is_closed(getattr(runtime, "page", None)):
+        return RuntimeHealth(score=0, should_recycle=True, reason="页面已关闭，主动重建运行时。")
+    if _object_is_closed(getattr(runtime, "context", None)):
+        return RuntimeHealth(score=0, should_recycle=True, reason="浏览器上下文已关闭，主动重建运行时。")
+
+    processed_count = int(getattr(runtime, "processed_count", 0) or 0)
+    if max_processed_count > 0 and processed_count >= max_processed_count:
+        return RuntimeHealth(
+            score=40,
+            should_recycle=True,
+            reason=f"批量抓取达到 {max_processed_count} 个账号，主动重建运行时。",
+        )
+
+    failure_count = int(getattr(runtime, "failure_count", 0) or 0)
+    if max_failure_count > 0 and failure_count >= max_failure_count:
+        return RuntimeHealth(
+            score=30,
+            should_recycle=True,
+            reason=f"运行时连续错误 {failure_count} 次，主动重建运行时。",
+        )
+
+    created_at = float(getattr(runtime, "created_at", time.monotonic()) or time.monotonic())
+    age_seconds = max(0, int(time.monotonic() - created_at))
+    if max_age_seconds > 0 and age_seconds >= max_age_seconds:
+        return RuntimeHealth(
+            score=50,
+            should_recycle=True,
+            reason=f"运行时已持续 {age_seconds} 秒，主动重建运行时。",
+        )
+
+    score = max(60, 100 - processed_count * 8 - failure_count * 20)
+    return RuntimeHealth(score=score, should_recycle=False)
+
+
+def runtime_recycle_reason(runtime: Any, *, max_processed_count: int = 5) -> str:
+    health = evaluate_runtime_health(runtime, max_processed_count=max_processed_count)
+    if not health.should_recycle:
+        return ""
+    return health.reason
 
 
 def should_invalidate_runtime(exc: Exception) -> bool:

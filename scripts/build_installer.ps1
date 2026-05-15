@@ -1,6 +1,7 @@
 param(
     [switch]$Clean,
-    [switch]$IncludeOfflineChromium
+    [switch]$IncludeOfflineChromium,
+    [switch]$SkipVerification
 )
 
 Set-StrictMode -Version Latest
@@ -38,6 +39,22 @@ function Assert-PyInstallerAvailable {
     }
 }
 
+function Invoke-LocalVerification {
+    param(
+        [string]$ProjectRoot
+    )
+
+    $verifyScript = Join-Path $ProjectRoot "scripts\verify_local.ps1"
+    if (-not (Test-Path $verifyScript)) {
+        throw "未找到本地验证脚本：scripts\verify_local.ps1"
+    }
+    Write-Host "开始执行构建前本地验证..."
+    & $verifyScript
+    if ($LASTEXITCODE -ne 0) {
+        throw "构建前本地验证失败，请修复后重新构建。"
+    }
+}
+
 function Resolve-OfflineRuntimeSource {
     param(
         [string]$ProjectRoot
@@ -58,6 +75,9 @@ $installerSourceDir = Join-Path $installerSourceRoot $appName
 $installerExeName = "$appName.exe"
 $outputBaseFilename = if ($IncludeOfflineChromium) { "$appName-离线版" } else { "$appName-标准版" }
 $innoCompiler = Resolve-InnoCompilerPath -ProjectRoot $projectRoot
+if (-not $SkipVerification) {
+    Invoke-LocalVerification -ProjectRoot $projectRoot
+}
 Assert-PyInstallerAvailable
 $offlineRuntimeSource = if ($IncludeOfflineChromium) {
     Resolve-OfflineRuntimeSource -ProjectRoot $projectRoot

@@ -32,6 +32,14 @@ class BuildInstallerScriptTestCase(unittest.TestCase):
             "Copy-Item -LiteralPath $offlineRuntimeSource -Destination $offlineRuntimeTarget -Recurse -Force", content
         )
 
+    def test_build_script_runs_local_verification_by_default(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("[switch]$SkipVerification", content)
+        self.assertIn('Join-Path $ProjectRoot "scripts\\verify_local.ps1"', content)
+        self.assertIn("Invoke-LocalVerification -ProjectRoot $projectRoot", content)
+        self.assertIn("构建前本地验证失败，请修复后重新构建。", content)
+
     def test_installer_preserves_user_data_directories(self):
         content = INSTALLER_ISS_PATH.read_text(encoding="utf-8")
 

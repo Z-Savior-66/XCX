@@ -1,0 +1,12 @@
+{
+  "data": {
+    "user_refund_check_list": [
+      {
+        "ctrl_info": {
+          "deadline_time": "2026-05-19 09:00:00",
+          "appeal_deadline_time": "2026-05-21 10:30:00"
+        }
+      }
+    ]
+  }
+}

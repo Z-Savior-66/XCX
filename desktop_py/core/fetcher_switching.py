@@ -302,7 +302,7 @@ def list_switchable_accounts_impl(
     return names
 
 
-def wait_for_locator_items_impl(page: Page, locator: Locator, timeout_ms: int = 1800, interval_ms: int = 200) -> bool:
+def wait_for_locator_items_impl(page: Page, locator: Locator, timeout_ms: int = 5000, interval_ms: int = 250) -> bool:
     deadline = time.monotonic() + (timeout_ms / 1000)
     while time.monotonic() < deadline:
         if locator.count() > 0:

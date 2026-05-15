@@ -4,6 +4,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
+from desktop_py.core.fetcher_manifest import (
+    add_fetch_evidence,
+    fetch_step,
+    finish_fetch_run,
+    start_fetch_run,
+    write_fetch_manifest,
+)
+from desktop_py.core.fetcher_runtime import record_runtime_failure, record_runtime_success, runtime_recycle_reason
 from desktop_py.core.fetcher_support import (
     CancelledError,
     FetchError,
@@ -136,14 +144,18 @@ def fetch_account_in_page_impl(
     business_iframe_selector_fn: Callable[..., str],
     safe_page_content_fn: Callable[..., str],
     fetch_notifications_fn: Callable[..., dict[str, Any]] | None = None,
-    fetch_paginated_refund_list_captures_fn: Callable[..., list[Any]] | None = None,
     is_empty_refund_list_fn: Callable[..., bool],
     confirm_empty_refund_list_fn: Callable[..., tuple[bool, str]],
     build_empty_refund_result_fn: Callable[..., FetchResult],
     build_detail_result_fn: Callable[..., FetchResult],
 ) -> FetchResult:
     output_dir = account_output_dir_fn(account.name)
-    captures, cleanup_response_capture = register_response_capture_fn(page, capture_response_payload_fn)
+    manifest = start_fetch_run(account, profile_dir=profile_dir, output_dir=str(output_dir))
+
+    def cleanup_response_capture() -> None:
+        return None
+
+    captures: list[Any] = []
     notification_outcome = {
         "ok": False,
         "notifications": [],
@@ -152,118 +164,133 @@ def fetch_account_in_page_impl(
     }
 
     try:
+        with fetch_step(manifest, "注册响应监听"):
+            captures, cleanup_response_capture = register_response_capture_fn(page, capture_response_payload_fn)
+
         bootstrap_url = resolve_bootstrap_url_fn(account, output_dir)
         if not _page_has_backend_session(page):
-            page.goto(bootstrap_url, wait_until="domcontentloaded", timeout=60000)
-            wait_for_url_contains_fn(page, ("token=", "/wxamp/index/index"), timeout_ms=4000, is_cancelled=is_cancelled)
-            _set_page_home_ready(page, bootstrap_url == account.home_url)
-
-        if is_login_timeout_page(page, safe_page_content_fn=safe_page_content_fn):
-            recovered = _recover_timeout_page_if_needed(
-                page,
-                logger=logger,
-                log_fn=log_fn,
-                safe_page_content_fn=safe_page_content_fn,
-                is_cancelled=is_cancelled,
-            )
-            if recovered:
+            with fetch_step(manifest, "进入微信后台", detail=bootstrap_url):
+                page.goto(bootstrap_url, wait_until="domcontentloaded", timeout=60000)
                 wait_for_url_contains_fn(
                     page, ("token=", "/wxamp/index/index"), timeout_ms=4000, is_cancelled=is_cancelled
                 )
+                _set_page_home_ready(page, bootstrap_url == account.home_url)
+
+        with fetch_step(manifest, "检查并恢复登录超时页"):
+            if is_login_timeout_page(page, safe_page_content_fn=safe_page_content_fn):
+                recovered = _recover_timeout_page_if_needed(
+                    page,
+                    logger=logger,
+                    log_fn=log_fn,
+                    safe_page_content_fn=safe_page_content_fn,
+                    is_cancelled=is_cancelled,
+                )
+                if recovered:
+                    wait_for_url_contains_fn(
+                        page, ("token=", "/wxamp/index/index"), timeout_ms=4000, is_cancelled=is_cancelled
+                    )
 
         if "token=" not in page.url and bootstrap_url == account.home_url:
             raise FetchError("当前登录态未自动跳入后台页，且没有可复用的历史反馈页地址，无法启动自动切换账号。")
 
-        current_account_name = _page_current_account_name(page)
-        if not current_account_name:
-            current_account_name = extract_current_account_name_fn(page)
-            if current_account_name:
-                _set_page_current_account_name(page, current_account_name)
+        with fetch_step(manifest, "确认当前账号"):
+            current_account_name = _page_current_account_name(page)
+            if not current_account_name:
+                current_account_name = extract_current_account_name_fn(page)
+                if current_account_name:
+                    _set_page_current_account_name(page, current_account_name)
 
-        if should_switch_for_account_fn(account, current_account_name):
-            switch_to_account_fn(page, account.name, account.home_url, logger)
-            _set_page_current_account_name(page, account.name)
-        elif account.is_entry_account:
-            log_fn(logger, "入口账号使用当前共享会话，不执行切换账号。")
-        else:
-            log_fn(logger, f"账号 {account.name} 已处于当前会话，跳过切换步骤。")
+        with fetch_step(manifest, "切换目标账号", detail=account.name):
+            if should_switch_for_account_fn(account, current_account_name):
+                switch_to_account_fn(page, account.name, account.home_url, logger)
+                _set_page_current_account_name(page, account.name)
+            elif account.is_entry_account:
+                log_fn(logger, "入口账号使用当前共享会话，不执行切换账号。")
+            else:
+                log_fn(logger, f"账号 {account.name} 已处于当前会话，跳过切换步骤。")
 
         if callable(fetch_notifications_fn):
-            notification_outcome = fetch_notifications_fn(
+            with fetch_step(manifest, "采集通知中心"):
+                notification_outcome = fetch_notifications_fn(
+                    page,
+                    account=account,
+                    logger=logger,
+                    output_dir=output_dir,
+                    log_fn=log_fn,
+                    wait_for_url_contains_fn=wait_for_url_contains_fn,
+                    safe_page_content_fn=safe_page_content_fn,
+                    is_cancelled=is_cancelled,
+                )
+
+        feedback_capture_start = len(captures)
+        with fetch_step(manifest, "打开退款反馈页"):
+            feedback_url = open_feedback_page_fn(
                 page,
                 account=account,
                 logger=logger,
-                output_dir=output_dir,
-                log_fn=log_fn,
-                wait_for_url_contains_fn=wait_for_url_contains_fn,
-                safe_page_content_fn=safe_page_content_fn,
+                build_feedback_url_fn=build_feedback_url_fn,
+                wait_for_iframe_ready_fn=wait_for_iframe_ready_fn,
                 is_cancelled=is_cancelled,
             )
-
-        feedback_capture_start = len(captures)
-        feedback_url = open_feedback_page_fn(
-            page,
-            account=account,
-            logger=logger,
-            build_feedback_url_fn=build_feedback_url_fn,
-            wait_for_iframe_ready_fn=wait_for_iframe_ready_fn,
-            is_cancelled=is_cancelled,
-        )
         current_captures = captures[feedback_capture_start:]
-        if callable(fetch_paginated_refund_list_captures_fn):
-            current_captures = fetch_paginated_refund_list_captures_fn(
-                page=page,
-                captures=current_captures,
-                logger=logger,
-                log_fn=log_fn,
+        add_fetch_evidence(
+            manifest,
+            kind="network",
+            label="退款反馈页响应",
+            summary=f"捕获 {len(current_captures)} 条目标响应",
+            metadata={"capture_count": len(current_captures)},
+        )
+        with fetch_step(manifest, "定位业务 iframe"):
+            frame_locator = resolve_frame_locator_fn(
+                page,
+                output_dir=output_dir,
+                business_iframe_selector_fn=business_iframe_selector_fn,
+                safe_page_content_fn=safe_page_content_fn,
             )
-        frame_locator = resolve_frame_locator_fn(
-            page,
-            output_dir=output_dir,
-            business_iframe_selector_fn=business_iframe_selector_fn,
-            safe_page_content_fn=safe_page_content_fn,
-        )
-        list_text = frame_locator.locator("body").text_content(timeout=15000) or ""
+            list_text = frame_locator.locator("body").text_content(timeout=15000) or ""
 
-        empty_confirmed, confirmed_list_text = confirm_empty_refund_list_fn(
-            page=page,
-            frame_locator=frame_locator,
-            initial_text=list_text,
-            captures=current_captures,
-            is_empty_refund_list_fn=is_empty_refund_list_fn,
-            is_cancelled=is_cancelled,
-        )
+        with fetch_step(manifest, "确认退款列表状态"):
+            empty_confirmed, confirmed_list_text = confirm_empty_refund_list_fn(
+                page=page,
+                frame_locator=frame_locator,
+                initial_text=list_text,
+                captures=current_captures,
+                is_empty_refund_list_fn=is_empty_refund_list_fn,
+                is_cancelled=is_cancelled,
+            )
 
         if empty_confirmed:
-            result = build_empty_refund_result_fn(
-                page=page,
-                context=context,
-                account=account,
-                output_dir=output_dir,
-                frame_locator=frame_locator,
-                list_text=confirmed_list_text,
-                captures=current_captures,
-                feedback_url=feedback_url,
-                profile_dir=profile_dir,
-                logger=logger,
-                safe_page_content_fn=safe_page_content_fn,
-                extract_current_account_name_fn=extract_current_account_name_fn,
-                is_cancelled=is_cancelled,
-            )
+            with fetch_step(manifest, "生成空列表采集结果"):
+                result = build_empty_refund_result_fn(
+                    page=page,
+                    context=context,
+                    account=account,
+                    output_dir=output_dir,
+                    frame_locator=frame_locator,
+                    list_text=confirmed_list_text,
+                    captures=current_captures,
+                    feedback_url=feedback_url,
+                    profile_dir=profile_dir,
+                    logger=logger,
+                    safe_page_content_fn=safe_page_content_fn,
+                    extract_current_account_name_fn=extract_current_account_name_fn,
+                    is_cancelled=is_cancelled,
+                )
         else:
-            result = build_detail_result_fn(
-                page=page,
-                context=context,
-                account=account,
-                output_dir=output_dir,
-                frame_locator=frame_locator,
-                captures=current_captures,
-                feedback_url=feedback_url,
-                profile_dir=profile_dir,
-                logger=logger,
-                safe_page_content_fn=safe_page_content_fn,
-                extract_current_account_name_fn=extract_current_account_name_fn,
-            )
+            with fetch_step(manifest, "生成详情页采集结果"):
+                result = build_detail_result_fn(
+                    page=page,
+                    context=context,
+                    account=account,
+                    output_dir=output_dir,
+                    frame_locator=frame_locator,
+                    captures=current_captures,
+                    feedback_url=feedback_url,
+                    profile_dir=profile_dir,
+                    logger=logger,
+                    safe_page_content_fn=safe_page_content_fn,
+                    extract_current_account_name_fn=extract_current_account_name_fn,
+                )
         if result.actual_account_name.strip():
             _set_page_current_account_name(page, result.actual_account_name)
         notification_summary = str(notification_outcome.get("summary", "") or "").strip()
@@ -274,7 +301,13 @@ def fetch_account_in_page_impl(
         elif not notification_outcome.get("ok", True) and notification_summary:
             write_fetch_result(account.name, result)
         _set_page_home_ready(page, False)
+        finish_fetch_run(manifest, result=result)
+        write_fetch_manifest(account.name, manifest)
         return cast(FetchResult, result)
+    except Exception as exc:
+        finish_fetch_run(manifest, error=exc)
+        write_fetch_manifest(account.name, manifest)
+        raise
     finally:
         cleanup_response_capture()
 
@@ -343,8 +376,10 @@ def fetch_account_impl(
         )
         if result.actual_account_name.strip():
             update_runtime_current_account_name_fn(runtime, result.actual_account_name)
+        record_runtime_success(runtime)
         return cast(FetchResult, result)
     except Exception as exc:
+        record_runtime_failure(runtime, exc)
         if should_invalidate_runtime_fn(exc):
             invalidate_group_runtime_fn(runtime, str(exc))
         else:
@@ -419,7 +454,6 @@ def fetch_accounts_batch_impl(
             logger=logger,
             is_cancelled=is_cancelled,
         )
-        processed_in_runtime = 0
         try:
             for index, account in enumerate(group_accounts):
                 if is_cancelled is not None and is_cancelled():
@@ -436,10 +470,11 @@ def fetch_accounts_batch_impl(
                     )
                     if result.actual_account_name.strip():
                         update_runtime_current_account_name_fn(runtime, result.actual_account_name)
-                    processed_in_runtime += 1
+                    record_runtime_success(runtime)
                 except CancelledError:
                     raise
                 except Exception as exc:
+                    record_runtime_failure(runtime, exc)
                     if should_invalidate_runtime_fn(exc):
                         invalidate_group_runtime_fn(runtime, str(exc))
                         if has_next_account:
@@ -452,22 +487,15 @@ def fetch_accounts_batch_impl(
                                 logger=logger,
                                 is_cancelled=is_cancelled,
                             )
-                            processed_in_runtime = 0
                     result = FetchResult(account_name=account.name, ok=False, note=str(exc))
                 if is_cancelled is not None and is_cancelled():
                     raise CancelledError("任务已取消")
                 results.append(result)
                 if progress is not None:
                     progress(result)
-                if (
-                    batch_runtime_refresh_every > 0
-                    and processed_in_runtime >= batch_runtime_refresh_every
-                    and index < len(group_accounts) - 1
-                ):
-                    invalidate_group_runtime_fn(
-                        runtime,
-                        f"批量抓取达到 {batch_runtime_refresh_every} 个账号，主动重建运行时。",
-                    )
+                recycle_reason = runtime_recycle_reason(runtime, max_processed_count=batch_runtime_refresh_every)
+                if recycle_reason and index < len(group_accounts) - 1:
+                    invalidate_group_runtime_fn(runtime, recycle_reason)
                     runtime = acquire_group_runtime_fn(
                         primary_account,
                         headless=headless,
@@ -477,7 +505,6 @@ def fetch_accounts_batch_impl(
                         logger=logger,
                         is_cancelled=is_cancelled,
                     )
-                    processed_in_runtime = 0
             if is_cancelled is not None and is_cancelled():
                 raise CancelledError("任务已取消")
         finally:

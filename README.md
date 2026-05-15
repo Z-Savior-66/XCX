@@ -68,11 +68,21 @@ python -m pip install -r requirements-build.txt
 
 ### 构建安装包
 
+构建脚本默认会先执行完整本地验证：
+
+```powershell
+pwsh ./scripts/verify_local.ps1
+```
+
+验证通过后再执行安装包构建：
+
 ```powershell
 pwsh ./scripts/build_installer.ps1 -Clean
 ```
 
 如果本机缺少 `PyInstaller`，构建脚本会直接报错并提示安装 `requirements-build.txt`。
+
+如果只是复现历史构建且已经在同一工作区刚完成验证，可以显式追加 `-SkipVerification` 跳过构建前验证；常规交付不建议跳过。
 
 ### 构建离线版安装包
 
@@ -141,6 +151,23 @@ python desktop_py_cli.py notify
 10. 点击“抓取选中账号”或“抓取全部账号”
 11. 配置飞书 Webhook 后点击“发送飞书汇总”
 
+## 登录态保存与续期
+
+桌面版同时支持两类 Playwright 登录态来源：
+
+- `storage/*.json`：账号级 `storage_state` 快照，保存 Cookie、localStorage 和 IndexedDB 等页面状态。
+- `browser_profile/`：专用持久化浏览器资料目录，用于复用微信后台账号池和页面内切换账号状态。
+
+建议在“全局设置”中使用程序创建的专用 `browser_profile/`，不要指向 Chrome、Edge 或其他日常浏览器的默认资料目录，避免资料目录被外部浏览器锁定或污染。自动续期不再只看当前页面是否仍可访问，而是先写入临时登录态文件，再用该临时文件新建浏览器上下文复验；只有保存后复验通过，才会替换正式 `storage/*.json`，并在替换前保留备份。
+
+自动续期日志会展示最近续期时间、保存后复验结果、连续失败次数，以及基于 Cookie 剩余寿命或登录态健康诊断得出的下次调度原因。出现以下情况时，建议重新保存登录态：
+
+- `storage/*.json` 缺失、不可读或内容不是有效登录态。
+- 自动续期保存后复验失败。
+- 微信后台页面提示登录超时或需要重新登录。
+- 自动续期连续失败。
+- 微信后台页面结构变化，导致程序无法确认当前账号信息。
+
 ## 数据文件
 
 - `data/accounts.json`：账号配置
@@ -167,17 +194,76 @@ python desktop_py_cli.py notify
   - 需要集中查看历史抓取记录
   - 需要更强的调度、审计或状态管理能力
 
+## 本地运行数据治理
+
+以下目录可能包含真实业务状态或登录态，禁止在常规清理中自动删除：
+
+- `data/`：账号配置与全局设置
+- `storage/`：账号登录态文件
+- `browser_profile/`：共享浏览器资料目录
+- `ms-playwright/`：已下载的 Playwright 浏览器运行时，离线环境可能依赖该目录
+
+以下目录属于可再生成产物，可以在确认不需要历史输出后手动清理：
+
+- `build/`：PyInstaller 和安装包构建临时目录
+- `dist/`：安装包输出目录
+- `output/`：抓取输出结果，清理前应确认不再需要历史记录
+
+交付前建议先运行 `pwsh ./scripts/verify_local.ps1`，再执行安装包构建。清理目录时只处理明确可再生成的产物，不要批量删除业务状态目录。
+
 ## 抓取说明
 
-- 当前版本优先从 iframe 详情页中提取“处理截止时间”
-- 会先进入微信后台首页，再自动读取当前 `token` 并拼接反馈页地址
-- 会优先尝试从微信后台页面内切换到目标账号
-- 若配置了共享浏览器资料目录，会优先复用该目录内的多账号池
-- 抓取结果会记录“当前实际账号名”，用于校验切换是否成功
-- 如果详情页提取失败，会降级读取 `getuserrefundchecklist` 接口中的候选时间字段
-- 若微信页面结构变化，需要同步调整 `desktop_py/core/fetcher.py`
+当前采集链路以微信后台页面为准，不直接依赖用户手工复制链接。程序会先进入微信后台首页，确认登录态和当前实际账号，再按需切换到目标账号，随后打开“未成年人支付退款”反馈页。详情页文本、关键网络响应和通知中心结果会共同参与判断，最终写入账号状态、日志和本地诊断产物。
+
+### 采集结果
+
+- 有待处理申请：账号列表会显示处理截止时间，状态显示为“完成”。
+- 无待处理申请：账号列表会显示“无待处理”，状态显示为“完成”。
+- 抓取失败：账号列表会显示简短失败原因，状态显示为“失败”。
+- 通知中心命中目标未读消息时，飞书汇总会把通知结果追加到对应账号行。
+
+### 诊断产物
+
+每次采集都会在 `output/desktop_py/<账号>/` 下写入本地结果。常用文件如下：
+
+- `result.json`：本次采集的最终结果，包括实际账号名、截止时间、页面地址和结果说明。
+- `fetch_manifest.json`：本次采集的诊断清单，包括采集规则版本、步骤状态、失败类型、响应证据摘要和耗时。
+- `notifications.json`：通知中心命中的目标未读消息。
+- `page.html`、`iframe.html`、`iframe.txt`、`responses.json`：失败或需要排查时保留的页面结构和响应片段。
+
+排查时可到对应账号输出目录查看 `fetch_manifest.json`，再结合 `result.json` 和页面片段判断失败原因。
+
+### 失败排查
+
+- 提示登录超时或未进入后台页：重新保存登录态，确认微信后台可正常进入。
+- 提示切换账号失败：确认共享浏览器资料目录中确实存在目标账号，并检查账号名称是否与微信后台一致。
+- 提示页面未出现业务 iframe：优先查看 `fetch_manifest.json` 和 `page.html`，通常表示页面结构变化、链接失效、无权限或登录态失效。
+- 提示未提取到处理截止时间：查看 `iframe.txt`、`iframe.html` 和 `responses.json`，确认页面文本或接口字段是否变化。
+- 通知中心抓取失败：查看 `notification_page.html` 和 `notifications.json`，确认后台是否仍有通知中心入口。
+
+### 维护验证
+
+采集规则带有稳定版本号，当前规则版本会写入 `fetch_manifest.json`。维护者调整页面选择器、接口字段或响应匹配规则后，应先补充脱敏回放夹具，再运行本地验证：
+
+```powershell
+python -m unittest py_tests.test_fetcher_replay -v
+python -m unittest py_tests.test_ui_fetch -v
+pwsh ./scripts/verify_local.ps1
+```
+
+回放夹具位于 `py_tests/fixtures/fetcher/`，用于覆盖正常详情、空列表、接口字段变更、缺失 iframe、登录超时、通知中心失败和跨账号 token 串号等场景。
 
 ## 本地验证
+
+推荐使用统一入口完成完整本地验证：
+
+```powershell
+pwsh ./scripts/verify_local.ps1
+```
+
+该脚本会设置 `QT_QPA_PLATFORM=offscreen`，并按顺序执行格式检查、静态检查、类型检查、`unittest` 与 `pytest`。任一命令失败时会立即退出并输出失败命令。
+
+也可以单独运行测试：
 
 ```powershell
 python -m unittest discover -s py_tests -v

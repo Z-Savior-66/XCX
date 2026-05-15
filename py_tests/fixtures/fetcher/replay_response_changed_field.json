@@ -1,0 +1,14 @@
+{
+  "body": {
+    "data": {
+      "user_refund_check_list": [
+        {
+          "ctrl_info": {
+            "deadline": "2026-05-22 09:15:00",
+            "status": "pending"
+          }
+        }
+      ]
+    }
+  }
+}

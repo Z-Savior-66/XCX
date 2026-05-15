@@ -33,6 +33,7 @@ class AccountConfig:
     last_session_renewed_at: str = ""
     last_session_error: str = ""
     last_actual_account_name: str = ""
+    session_renewal_failures: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
