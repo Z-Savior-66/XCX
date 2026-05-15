@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime
 from typing import Any
 
 import requests
 
-from desktop_py.core.models import FetchResult
+from desktop_py.core.models import FetchResult, PendingNotification
 
 
 def send_feishu_text(webhook: str, content: str) -> None:
@@ -41,13 +43,17 @@ def _feishu_response_code(payload: dict[str, Any]) -> int:
         raise ValueError("飞书消息发送失败：响应缺少业务状态码。") from exc
 
 
-def build_summary(results: list[FetchResult]) -> str:
+def build_summary(results: list[FetchResult], generated_at: datetime | None = None) -> str:
+    result_hash = summary_result_hash(results)
+    generated_time = (generated_at or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
     pending_results = sorted(
         [result for result in results if _should_include_in_summary(result)],
         key=_summary_sort_key,
     )
     lines = [
         "微信退款处理截止时间日报",
+        f"生成时间：{generated_time}",
+        f"摘要标识：{result_hash}",
         f"待处理账号：{len(pending_results)} 个",
         "",
     ]
@@ -108,3 +114,40 @@ def _parse_deadline(deadline_text: str) -> datetime | None:
         except ValueError:
             continue
     return None
+
+
+def summary_result_hash(results: list[FetchResult]) -> str:
+    payload = [
+        {
+            "account_name": result.account_name,
+            "actual_account_name": result.actual_account_name,
+            "deadline_text": result.deadline_text,
+            "note": result.note,
+            "ok": result.ok,
+        }
+        for result in sorted(
+            results,
+            key=lambda item: (
+                item.account_name,
+                item.actual_account_name,
+                item.deadline_text,
+                item.note,
+                item.ok,
+            ),
+        )
+    ]
+    content = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+
+
+def notification_content_hash(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+
+
+def build_pending_notification(content: str, source: str = "飞书汇总") -> PendingNotification:
+    return PendingNotification(
+        id=notification_content_hash(content),
+        content=content,
+        created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        source=source,
+    )

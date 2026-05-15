@@ -6,9 +6,16 @@ from collections.abc import Sequence
 
 from desktop_py.core.fetcher import fetch_account, save_login_state, save_login_state_with_profile
 from desktop_py.core.models import AccountConfig, FetchResult
-from desktop_py.core.notifier import build_summary, send_feishu_text
+from desktop_py.core.notifier import build_pending_notification, build_summary, send_feishu_text
 from desktop_py.core.session_links import propagate_account_feedback_url, refresh_account_feedback_url
-from desktop_py.core.store import load_accounts, load_settings, save_accounts
+from desktop_py.core.store import (
+    append_pending_notification,
+    load_accounts,
+    load_pending_notifications,
+    load_settings,
+    remove_pending_notifications,
+    save_accounts,
+)
 
 
 def enabled_imported_accounts(accounts: Sequence[AccountConfig]) -> list[AccountConfig]:
@@ -17,7 +24,7 @@ def enabled_imported_accounts(accounts: Sequence[AccountConfig]) -> list[Account
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="桌面版配套命令行工具")
-    parser.add_argument("command", choices=["login", "fetch-all", "notify"])
+    parser.add_argument("command", choices=["login", "fetch-all", "notify", "resend-notifications"])
     parser.add_argument("--account", help="指定账号名称")
     args = parser.parse_args()
 
@@ -73,12 +80,29 @@ def main() -> int:
             save_accounts(accounts)
 
         summary = build_summary(results)
-        send_feishu_text(settings.feishu_webhook, summary)
+        try:
+            send_feishu_text(settings.feishu_webhook, summary)
+        except Exception:
+            append_pending_notification(build_pending_notification(summary, source="CLI飞书汇总"))
+            raise
         print("飞书消息已发送")
         if failed_accounts:
             print("以下账号抓取失败，但已完成其余账号汇总：")
             for item in failed_accounts:
                 print(f"- {item}")
+        return 0
+
+    if args.command == "resend-notifications":
+        notifications = load_pending_notifications()
+        if not notifications:
+            print("当前没有待补发飞书消息")
+            return 0
+        sent_count = 0
+        for notification in notifications:
+            send_feishu_text(settings.feishu_webhook, notification.content)
+            remove_pending_notifications([notification.id])
+            sent_count += 1
+        print(f"飞书补发完成，已发送 {sent_count} 条")
         return 0
 
     return 0

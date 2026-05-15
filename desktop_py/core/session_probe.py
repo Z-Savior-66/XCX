@@ -21,7 +21,9 @@ from desktop_py.core.models import (
 )
 from desktop_py.core.page_waiting import (
     is_login_timeout_page,
+    is_wechat_mp_root_page_url,
     recover_login_timeout_page,
+    recover_wechat_mp_root_page,
     safe_page_content,
 )
 from desktop_py.core.session_links import canonical_feedback_url
@@ -48,6 +50,8 @@ class SessionVerification:
     actual_account_name: str = ""
     feedback_url: str = ""
     reason: str = ""
+    branch: str = ""
+    page_url: str = ""
     should_retry: bool = False
     should_relogin: bool = False
     session_source: str = ""
@@ -170,11 +174,14 @@ def _has_backend_session_content(page: Any) -> bool:
 
 
 def verify_backend_session(page: Any, account: AccountConfig | None = None) -> SessionVerification:
+    current_url = str(getattr(page, "url", "") or "")
     if is_login_timeout_page(page, safe_page_content_fn=safe_page_content):
         return SessionVerification(
             False,
             status=SESSION_STATUS_EXPIRED,
             reason="页面显示登录超时",
+            branch="login_timeout_page",
+            page_url=current_url,
             should_relogin=True,
         )
 
@@ -190,7 +197,7 @@ def verify_backend_session(page: Any, account: AccountConfig | None = None) -> S
     locator_valid = _has_backend_session_locator(page)
     feedback_url = ""
     if _has_backend_session_url(page):
-        feedback_url = canonical_feedback_url(str(getattr(page, "url", "") or ""))
+        feedback_url = canonical_feedback_url(current_url)
 
     if actual_account_name or locator_valid or content_valid:
         return SessionVerification(
@@ -199,6 +206,8 @@ def verify_backend_session(page: Any, account: AccountConfig | None = None) -> S
             actual_account_name=actual_account_name,
             feedback_url=feedback_url,
             reason="后台账号信息校验通过",
+            branch="backend_account_signals",
+            page_url=current_url,
         )
     if (
         _has_backend_session_url(page)
@@ -210,18 +219,24 @@ def verify_backend_session(page: Any, account: AccountConfig | None = None) -> S
             status=_verified_status_for_account(account),
             feedback_url=feedback_url,
             reason="测试页缺少可检查 DOM，按后台 URL 兼容",
+            branch="backend_url_without_dom",
+            page_url=current_url,
         )
     if _has_backend_session_url(page):
         return SessionVerification(
             False,
             status=SESSION_STATUS_EXPIRED,
             reason="仅检测到后台 URL/token，未检测到账号菜单或账号信息",
+            branch="backend_url_without_account_signals",
+            page_url=current_url,
             should_retry=True,
         )
     return SessionVerification(
         False,
         status=SESSION_STATUS_NEEDS_RELOGIN,
         reason="未检测到后台账号信息",
+        branch="missing_backend_account_signals",
+        page_url=current_url,
         should_relogin=True,
     )
 
@@ -292,6 +307,8 @@ def _probe_account_session_result(
     page: Any,
     account: AccountConfig,
     *,
+    logger: Logger | None = None,
+    log_fn: LogFn | None = None,
     wait_for_url_contains_fn: Callable[..., Any],
     timeout_ms: int,
 ) -> SessionVerification:
@@ -300,6 +317,8 @@ def _probe_account_session_result(
             True,
             status=_verified_status_for_account(account),
             reason="兼容测试页：跳过后台导航探测",
+            branch="compatibility_page_without_goto",
+            page_url=str(getattr(page, "url", "") or ""),
         )
     _probe_account_session_url(
         page,
@@ -307,4 +326,13 @@ def _probe_account_session_result(
         wait_for_url_contains_fn=wait_for_url_contains_fn,
         timeout_ms=timeout_ms,
     )
-    return verify_backend_session(page, account)
+    verification = verify_backend_session(page, account)
+    if (
+        not verification.valid
+        and verification.branch == "missing_backend_account_signals"
+        and is_wechat_mp_root_page_url(verification.page_url)
+        and recover_wechat_mp_root_page(page, wait_or_cancel_fn=_wait_for_timeout, logger=logger, log_fn=log_fn)
+    ):
+        _wait_for_backend_session(page, wait_for_url_contains_fn=wait_for_url_contains_fn, timeout_ms=timeout_ms)
+        verification = verify_backend_session(page, account)
+    return verification

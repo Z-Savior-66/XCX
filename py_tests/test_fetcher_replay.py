@@ -2,6 +2,8 @@ from desktop_py.core.fetcher_page_strategy import (
     build_detail_result,
     build_empty_refund_result,
     confirm_detail_deadline,
+    extract_deadline_from_captures,
+    fetch_paginated_refund_list_captures,
     filter_detail_captures,
     resolve_frame_locator,
 )
@@ -195,6 +197,32 @@ class FetcherReplayTestCase(FetcherTestBase):
         for case_name, payloads in cases.items():
             with self.subTest(case=case_name):
                 self.assertEqual({"deadline_text": _fallback_from_responses(payloads)}, expected[case_name])
+
+    def test_replay_paginated_refund_list_fixture_matches_golden(self):
+        golden = self.read_golden()
+        payload = json.loads(self.read_fixture("replay_paginated_refund_list.json"))
+        captures = payload["captures"]
+        requested_pages = payload["requested_pages"]
+
+        def fake_request(_page, request_url: str):
+            cur_page = request_url.split("cur_page=", 1)[1].split("&", 1)[0]
+            return requested_pages[cur_page]
+
+        extended_captures = fetch_paginated_refund_list_captures(
+            page=object(),
+            captures=captures,
+            logger=None,
+            log_fn=lambda _logger, _message: None,
+            request_refund_list_page_fn=fake_request,
+        )
+
+        self.assertEqual(
+            {
+                "capture_count": len(extended_captures),
+                "deadline_text": extract_deadline_from_captures(extended_captures),
+            },
+            golden["paginated_refund_list"],
+        )
 
     def test_replay_missing_business_iframe_reports_structure_error(self):
         golden = self.read_golden()

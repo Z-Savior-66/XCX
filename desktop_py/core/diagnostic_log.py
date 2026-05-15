@@ -26,6 +26,36 @@ def append_session_log(message: str, *, now: datetime | None = None, log_dir: Pa
     return path
 
 
+def log_session_offline(
+    account_name: str,
+    reason: str = "",
+    *,
+    branch: str = "",
+    page_url: str = "",
+    log_dir: Path | None = None,
+) -> Path | None:
+    detail = f"账号 {account_name} 登录态掉线"
+    session_detail = _session_detail_text(reason, branch, page_url)
+    if session_detail:
+        detail = f"{detail}：{session_detail}"
+    return append_session_log(detail, log_dir=log_dir)
+
+
+def log_session_renew_failed(
+    account_name: str,
+    reason: str = "",
+    *,
+    branch: str = "",
+    page_url: str = "",
+    log_dir: Path | None = None,
+) -> Path | None:
+    detail = f"账号 {account_name} 登录态续期失败"
+    session_detail = _session_detail_text(reason, branch, page_url)
+    if session_detail:
+        detail = f"{detail}：{session_detail}"
+    return append_session_log(detail, log_dir=log_dir)
+
+
 def _session_detail_text(reason: str = "", branch: str = "", page_url: str = "") -> str:
     parts: list[str] = []
     if reason.strip():
@@ -35,25 +65,3 @@ def _session_detail_text(reason: str = "", branch: str = "", page_url: str = "")
     if page_url.strip():
         parts.append(f"page.url={page_url.strip()}")
     return "；".join(parts)
-
-
-def log_session_offline(account_name: str, reason: str = "", *, branch: str = "", page_url: str = "") -> Path | None:
-    detail = f"账号 {account_name} 登录态掉线"
-    session_detail = _session_detail_text(reason, branch, page_url)
-    if session_detail:
-        detail = f"{detail}：{session_detail}"
-    return append_session_log(detail)
-
-
-def log_session_renew_failed(
-    account_name: str,
-    reason: str = "",
-    *,
-    branch: str = "",
-    page_url: str = "",
-) -> Path | None:
-    detail = f"账号 {account_name} 登录态续期失败"
-    session_detail = _session_detail_text(reason, branch, page_url)
-    if session_detail:
-        detail = f"{detail}：{session_detail}"
-    return append_session_log(detail)

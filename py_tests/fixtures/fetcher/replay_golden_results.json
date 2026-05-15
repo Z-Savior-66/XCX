@@ -22,6 +22,10 @@
   "changed_response_field": {
     "deadline_text": "2026-05-22 09:15:00"
   },
+  "paginated_refund_list": {
+    "capture_count": 2,
+    "deadline_text": "2026-05-18 10:00:00"
+  },
   "missing_iframe_error": {
     "error_type": "FetchError",
     "message": "页面未出现业务 iframe，可能是链接失效、无权限或登录态失效。"

@@ -2,7 +2,13 @@ import unittest
 from unittest.mock import patch
 
 from desktop_py.core.models import FetchResult
-from desktop_py.core.notifier import build_summary, send_feishu_text
+from desktop_py.core.notifier import (
+    build_pending_notification,
+    build_summary,
+    notification_content_hash,
+    send_feishu_text,
+    summary_result_hash,
+)
 
 
 class FakeFeishuResponse:
@@ -147,6 +153,34 @@ class NotifierTestCase(unittest.TestCase):
         self.assertIn("暂无待处理账号。", text)
         self.assertNotIn("1. 无待处理账号", text)
         self.assertNotIn("失败账号", text)
+
+    def test_summary_includes_generated_time_and_result_hash(self):
+        results = [FetchResult(account_name="账号A", ok=True, deadline_text="2026-04-20 09:00:00")]
+
+        text = build_summary(results)
+
+        self.assertIn("生成时间：", text)
+        self.assertIn(f"摘要标识：{summary_result_hash(results)}", text)
+
+    def test_summary_result_hash_is_stable_for_same_account_results(self):
+        first = [
+            FetchResult(account_name="账号B", ok=True, note="通知中心未读消息 1 条：通知"),
+            FetchResult(account_name="账号A", ok=True, deadline_text="2026-04-20 09:00:00"),
+        ]
+        second = [
+            FetchResult(account_name="账号A", ok=True, deadline_text="2026-04-20 09:00:00"),
+            FetchResult(account_name="账号B", ok=True, note="通知中心未读消息 1 条：通知"),
+        ]
+
+        self.assertEqual(summary_result_hash(first), summary_result_hash(second))
+
+    def test_build_pending_notification_uses_content_hash(self):
+        notification = build_pending_notification("待补发内容", source="测试来源")
+
+        self.assertEqual(notification.id, notification_content_hash("待补发内容"))
+        self.assertEqual(notification.content, "待补发内容")
+        self.assertEqual(notification.source, "测试来源")
+        self.assertRegex(notification.created_at, r"^20\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
 
 
 if __name__ == "__main__":

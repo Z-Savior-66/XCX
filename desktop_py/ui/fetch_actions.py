@@ -70,10 +70,24 @@ def fetch_diagnostic_message(account: Any, result: Any, *, account_output_file_f
 
 
 def mark_fetch_result(
-    window: Any, account: Any, result: Any, *, apply_fetch_result_fn: Any, save_accounts_fn: Any
+    window: Any,
+    account: Any,
+    result: Any,
+    *,
+    apply_fetch_result_fn: Any,
+    save_accounts_fn: Any,
+    cleanup_account_diagnostics_fn: Any = None,
 ) -> None:
     current_main_account_name = apply_fetch_result_fn(account, result)
     window.append_log(fetch_diagnostic_message(account, result))
+    if callable(cleanup_account_diagnostics_fn):
+        try:
+            cleanup_account_diagnostics_fn(
+                account.name,
+                retention_days=max(1, int(getattr(window.settings, "diagnostic_retention_days", 14) or 14)),
+            )
+        except Exception as exc:
+            window.append_log(f"清理诊断产物失败：{exc}")
     window.refresh_table()
     try:
         save_accounts_fn(window.accounts)

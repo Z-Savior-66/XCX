@@ -1,19 +1,26 @@
+import os
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from desktop_py.core.models import AccountConfig, AppSettings
+from desktop_py.core.models import AccountConfig, AppSettings, PendingNotification
 from desktop_py.core.store import (
     SHARED_BROWSER_PROFILE_DIR_NAME,
     _write_text_atomic,
     account_output_file,
     account_state_path,
+    append_pending_notification,
+    cleanup_account_diagnostics,
     load_accounts,
+    load_pending_notifications,
     load_settings,
     prepare_shared_browser_profile_dir,
+    remove_pending_notifications,
     runtime_root,
     save_accounts,
+    save_pending_notifications,
     save_settings,
     validate_shared_browser_profile_dir,
     write_account_output_json,
@@ -43,6 +50,7 @@ class StoreTestCase(unittest.TestCase):
                 settings = load_settings()
 
         self.assertFalse(settings.auto_fetch_push_enabled)
+        self.assertEqual(settings.diagnostic_retention_days, 14)
 
     def test_load_settings_supports_utf8_bom(self):
         with TemporaryDirectory() as temp_dir:
@@ -164,6 +172,47 @@ class StoreTestCase(unittest.TestCase):
         self.assertIn('"feishu_webhook": "demo"', calls[1][1])
         self.assertIn('"ok": true', calls[2][1])
 
+    def test_pending_notifications_round_trip_and_remove(self):
+        with TemporaryDirectory() as temp_dir:
+            pending_path = Path(temp_dir) / "pending_notifications.json"
+            with (
+                patch("desktop_py.core.store.PENDING_NOTIFICATIONS_FILE", pending_path),
+                patch("desktop_py.core.store.ensure_runtime_dirs"),
+            ):
+                self.assertEqual(load_pending_notifications(), [])
+                notification = PendingNotification(
+                    id="abc123",
+                    content="待补发内容",
+                    created_at="2026-05-15 22:00:00",
+                    source="测试",
+                )
+                save_pending_notifications([notification])
+                loaded = load_pending_notifications()
+                removed = remove_pending_notifications(["abc123"])
+
+        self.assertEqual(loaded, [notification])
+        self.assertEqual(removed, 1)
+
+    def test_append_pending_notification_deduplicates_by_id(self):
+        with TemporaryDirectory() as temp_dir:
+            pending_path = Path(temp_dir) / "pending_notifications.json"
+            notification = PendingNotification(
+                id="same-id",
+                content="待补发内容",
+                created_at="2026-05-15 22:00:00",
+            )
+            with (
+                patch("desktop_py.core.store.PENDING_NOTIFICATIONS_FILE", pending_path),
+                patch("desktop_py.core.store.ensure_runtime_dirs"),
+            ):
+                first_result = append_pending_notification(notification)
+                second_result = append_pending_notification(notification)
+                loaded = load_pending_notifications()
+
+        self.assertTrue(first_result)
+        self.assertFalse(second_result)
+        self.assertEqual(loaded, [notification])
+
     def test_atomic_write_keeps_original_file_when_replace_fails(self):
         with TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "settings.json"
@@ -279,6 +328,37 @@ class StoreTestCase(unittest.TestCase):
 
                 target = output_root / "测试账号" / "payload.json"
                 self.assertIn('"ok": true', target.read_text(encoding="utf-8"))
+
+    def test_cleanup_account_diagnostics_only_removes_old_diagnostic_files(self):
+        with TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "output"
+            with patch("desktop_py.core.store.PY_OUTPUT_DIR", output_root):
+                account_dir = output_root / "测试账号"
+                account_dir.mkdir(parents=True)
+                old_manifest = account_dir / "fetch_manifest.json"
+                old_page = account_dir / "page.html"
+                result_file = account_dir / "result.json"
+                fresh_responses = account_dir / "responses.json"
+                for path in (old_manifest, old_page, result_file, fresh_responses):
+                    path.write_text("{}", encoding="utf-8")
+                old_time = 1000
+                fresh_time = time.time()
+                os.utime(old_manifest, (old_time, old_time))
+                os.utime(old_page, (old_time, old_time))
+                os.utime(result_file, (old_time, old_time))
+                os.utime(fresh_responses, (fresh_time, fresh_time))
+
+                removed = cleanup_account_diagnostics("测试账号", retention_days=1)
+                old_manifest_exists = old_manifest.exists()
+                old_page_exists = old_page.exists()
+                result_file_exists = result_file.exists()
+                fresh_responses_exists = fresh_responses.exists()
+
+        self.assertEqual(removed, 2)
+        self.assertFalse(old_manifest_exists)
+        self.assertFalse(old_page_exists)
+        self.assertTrue(result_file_exists)
+        self.assertTrue(fresh_responses_exists)
 
 
 if __name__ == "__main__":

@@ -54,6 +54,8 @@ def send_summary_with_webhook(
     *,
     build_summary_fn: Any,
     send_feishu_text_fn: Any,
+    build_pending_notification_fn: Any,
+    append_pending_notification_fn: Any,
     fetch_result_cls: Any,
     actual_account_prefix: str,
     save_accounts_fn: Any,
@@ -74,8 +76,17 @@ def send_summary_with_webhook(
         for account in window.accounts
         if account.enabled
     ]
+
+    def send_job(_log: Any) -> None:
+        summary = build_summary_fn(results)
+        try:
+            send_feishu_text_fn(webhook, summary)
+        except Exception:
+            append_pending_notification_fn(build_pending_notification_fn(summary, source="飞书汇总"))
+            raise
+
     window._run_thread(
-        lambda _log: send_feishu_text_fn(webhook, build_summary_fn(results)),
+        send_job,
         on_success=lambda _: clear_pushed_fetch_state(window, save_accounts_fn=save_accounts_fn),
     )
 
@@ -104,3 +115,36 @@ def actual_account_name_from_note(note: str, *, actual_account_prefix: str) -> s
         if text.startswith(actual_account_prefix):
             return text.removeprefix(actual_account_prefix).strip()
     return ""
+
+
+def resend_pending_notifications(
+    window: Any,
+    *,
+    send_feishu_text_fn: Any,
+    load_pending_notifications_fn: Any,
+    remove_pending_notifications_fn: Any,
+) -> None:
+    webhook = window.webhook_edit.text().strip()
+    window.settings.feishu_webhook = webhook
+    if not webhook:
+        window._show_warning("提示", "请先填写飞书 Webhook。")
+        return
+
+    notifications = load_pending_notifications_fn()
+    if not notifications:
+        window.append_log("当前没有待补发飞书消息。")
+        return
+
+    def resend_job(log: Any) -> int:
+        sent_count = 0
+        for notification in notifications:
+            send_feishu_text_fn(webhook, notification.content)
+            remove_pending_notifications_fn([notification.id])
+            sent_count += 1
+            log(f"已补发飞书消息：{notification.id}")
+        return sent_count
+
+    window._run_thread(
+        resend_job,
+        on_success=lambda sent_count: window.append_log(f"飞书补发完成，已发送 {sent_count} 条。"),
+    )

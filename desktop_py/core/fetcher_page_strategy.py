@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from desktop_py.core.fetcher_output import persist_storage_state, write_fetch_artifacts
 from desktop_py.core.fetcher_rules import DEFAULT_REFUND_RULES
@@ -23,6 +25,7 @@ LogFn = Callable[[Logger | None, str], None]
 
 REFUND_COUNT_PATTERN = re.compile(r"退款申请[（(]\s*(\d+)\s*[）)]")
 DEADLINE_DATETIME_PATTERN = re.compile(r"处理截止时间[：:\s]{0,8}\d{4}[-年]\d{1,2}[-月]\d{1,2}")
+DEADLINE_TIME_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d")
 
 
 def register_response_capture(
@@ -82,6 +85,10 @@ def _latest_refund_capture(captures: list[Any], response_type: str) -> dict[str,
     return None
 
 
+def _refund_list_captures(captures: list[Any]) -> list[dict[str, Any]]:
+    return [capture for capture in captures if isinstance(capture, dict) and capture.get("response_type") == "list"]
+
+
 def _refund_items_from_capture(capture: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not capture:
         return []
@@ -95,6 +102,105 @@ def _refund_items_from_capture(capture: dict[str, Any] | None) -> list[dict[str,
     if not isinstance(items, list):
         return []
     return [item for item in items if isinstance(item, dict)]
+
+
+def _parse_deadline_text(value: str) -> datetime | None:
+    text = str(value).strip()
+    if not text:
+        return None
+    for fmt in DEADLINE_TIME_FORMATS:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _earliest_deadline_text(deadlines: list[str]) -> str:
+    dated = [(parsed, text.strip()) for text in deadlines if (parsed := _parse_deadline_text(text)) is not None]
+    if not dated:
+        return ""
+    return min(dated, key=lambda item: item[0])[1]
+
+
+def _refund_list_capture_pagination(capture: dict[str, Any] | None) -> tuple[str, int, int, int, int]:
+    if not capture:
+        return "", 0, 0, 0, 0
+    capture_url = str(capture.get("url", "") or "").strip()
+    if not capture_url:
+        return "", 0, 0, 0, 0
+    body = capture.get("body")
+    if not isinstance(body, dict):
+        return "", 0, 0, 0, 0
+    data = body.get("data")
+    if not isinstance(data, dict):
+        return "", 0, 0, 0, 0
+    total_count = int(data.get("total_count") or 0)
+    item_count = len(_refund_items_from_capture(capture))
+    query = parse_qs(urlparse(capture_url).query)
+    per_page = int((query.get("per_page") or ["0"])[0] or 0)
+    current_page = int((query.get("cur_page") or ["0"])[0] or 0)
+    return capture_url, current_page, per_page, total_count, item_count
+
+
+def request_refund_list_page(page: Any, request_url: str) -> Any:
+    return page.evaluate(
+        """async (url) => {
+            const response = await fetch(url, { credentials: 'include' });
+            const text = await response.text();
+            try {
+                return JSON.parse(text);
+            } catch {
+                return text;
+            }
+        }""",
+        request_url,
+    )
+
+
+def fetch_paginated_refund_list_captures(
+    *,
+    page: Any,
+    captures: list[Any],
+    logger: Logger | None,
+    log_fn: LogFn,
+    request_refund_list_page_fn: Callable[[Any, str], Any],
+) -> list[Any]:
+    list_captures = _refund_list_captures(captures)
+    latest_list_capture = list_captures[-1] if list_captures else None
+    capture_url, _current_page, per_page, total_count, item_count = _refund_list_capture_pagination(latest_list_capture)
+    if not capture_url or per_page <= 0 or total_count <= max(item_count, per_page):
+        return captures
+
+    parsed_url = urlparse(capture_url)
+    base_query = parse_qs(parsed_url.query)
+    total_pages = (total_count + per_page - 1) // per_page
+    seen_pages: set[int] = set()
+    for capture in list_captures:
+        _, current_page, _, _, _ = _refund_list_capture_pagination(capture)
+        seen_pages.add(current_page)
+
+    extended_captures = list(captures)
+    for page_index in range(total_pages):
+        if page_index in seen_pages:
+            continue
+        query = {key: list(value) for key, value in base_query.items()}
+        query["cur_page"] = [str(page_index)]
+        page_url = urlunparse(parsed_url._replace(query=urlencode(query, doseq=True)))
+        body = request_refund_list_page_fn(page, page_url)
+        extended_captures.append(
+            {
+                "url": page_url,
+                "status": 200,
+                "content_type": "application/json",
+                "body": body,
+                "token": str((query.get("token") or [""])[0]).strip(),
+                "response_type": "list",
+                "captured_at": time.time(),
+            }
+        )
+        log_fn(logger, f"退款列表分页补抓成功：第 {page_index + 1}/{total_pages} 页。")
+    return extended_captures
 
 
 def list_capture_result(captures: list[Any]) -> str:
@@ -120,6 +226,7 @@ def list_capture_result(captures: list[Any]) -> str:
 
 
 def extract_deadline_from_refund_capture(capture: dict[str, Any] | None) -> str:
+    candidates: list[str] = []
     items = _refund_items_from_capture(capture)
     for item in items:
         ctrl_info = item.get("ctrl_info")
@@ -127,19 +234,27 @@ def extract_deadline_from_refund_capture(capture: dict[str, Any] | None) -> str:
             continue
         deadline_text = _fallback_from_responses([ctrl_info])
         if deadline_text:
-            return deadline_text
+            candidates.append(deadline_text)
     if capture is None:
         return ""
-    return _fallback_from_responses([capture])
+    fallback_deadline = _fallback_from_responses([capture])
+    if fallback_deadline:
+        candidates.append(fallback_deadline)
+    return _earliest_deadline_text(candidates)
 
 
 def extract_deadline_from_captures(captures: list[Any]) -> str:
     detail_capture = _latest_refund_capture(captures, "detail")
     deadline_text = extract_deadline_from_refund_capture(detail_capture)
+    list_captures = _refund_list_captures(captures)
+    list_deadline = _earliest_deadline_text(
+        [extract_deadline_from_refund_capture(capture) for capture in list_captures]
+    )
+    if len(list_captures) > 1 and deadline_text and list_deadline:
+        return _earliest_deadline_text([deadline_text, list_deadline]) or deadline_text
     if deadline_text:
         return deadline_text
-    list_capture = _latest_refund_capture(captures, "list")
-    return extract_deadline_from_refund_capture(list_capture)
+    return list_deadline
 
 
 def matches_refund_response_contract(response: Any, feedback_url: str, response_type: str) -> bool:

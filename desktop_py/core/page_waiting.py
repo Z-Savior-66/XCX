@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from urllib.parse import urlparse
 
 from playwright.sync_api import Page
 
@@ -17,6 +18,11 @@ from desktop_py.core.fetcher_rules import DEFAULT_REFUND_RULES
 
 BUSINESS_IFRAME_SELECTORS = DEFAULT_REFUND_RULES.iframe_selectors
 LOGIN_TIMEOUT_PAGE_TEXT = "登录超时，请重新登录"
+LOGIN_TIMEOUT_PAGE_TEXT_VARIANTS = (
+    LOGIN_TIMEOUT_PAGE_TEXT,
+    "登录超时",
+    "请重新登录",
+)
 LOGIN_TIMEOUT_NAV_TEXT = "小程序"
 LOGIN_TIMEOUT_EXIT_TEXT = "退出登录"
 MINI_PROGRAM_HOME_SELECTORS = (
@@ -128,11 +134,30 @@ def _page_contains_text(page: Page, text: str, *, safe_page_content_fn: SafePage
 
 
 def is_login_timeout_page(page: Page, *, safe_page_content_fn: SafePageContent) -> bool:
-    if not _page_contains_text(page, LOGIN_TIMEOUT_PAGE_TEXT, safe_page_content_fn=safe_page_content_fn):
+    if not any(
+        _page_contains_text(page, text, safe_page_content_fn=safe_page_content_fn)
+        for text in LOGIN_TIMEOUT_PAGE_TEXT_VARIANTS
+    ):
         return False
     return _page_contains_text(
         page, LOGIN_TIMEOUT_NAV_TEXT, safe_page_content_fn=safe_page_content_fn
     ) or _page_contains_text(page, LOGIN_TIMEOUT_EXIT_TEXT, safe_page_content_fn=safe_page_content_fn)
+
+
+def _click_mini_program_entry(page: Page) -> bool:
+    for selector in MINI_PROGRAM_HOME_SELECTORS:
+        try:
+            target = page.locator(selector)
+            if target.count() == 0:
+                continue
+            try:
+                target.first.click(timeout=1000)
+            except Exception:
+                target.first.evaluate("e => e.click()")
+            return True
+        except Exception:
+            continue
+    return False
 
 
 def recover_login_timeout_page(
@@ -150,19 +175,7 @@ def recover_login_timeout_page(
     if log_fn is not None:
         log_fn(logger, "检测到后台登录超时页，尝试点击左上角“小程序”恢复。")
 
-    for selector in MINI_PROGRAM_HOME_SELECTORS:
-        try:
-            target = page.locator(selector)
-            if target.count() == 0:
-                continue
-            try:
-                target.first.click(timeout=1000)
-            except Exception:
-                target.first.evaluate("e => e.click()")
-            break
-        except Exception:
-            continue
-    else:
+    if not _click_mini_program_entry(page):
         if log_fn is not None:
             log_fn(logger, "后台登录超时页恢复失败：未找到左上角“小程序”入口。")
         return False
@@ -176,6 +189,42 @@ def recover_login_timeout_page(
 
     if log_fn is not None:
         log_fn(logger, "后台登录超时页恢复失败：点击“小程序”后页面仍停留在超时提示。")
+    return False
+
+
+def is_wechat_mp_root_page_url(page_url: str) -> bool:
+    parsed = urlparse(str(page_url or "").strip())
+    if parsed.netloc != "mp.weixin.qq.com":
+        return False
+    if parsed.path not in ("", "/"):
+        return False
+    return "token=" not in parsed.query
+
+
+def recover_wechat_mp_root_page(
+    page: Page,
+    *,
+    wait_or_cancel_fn: WaitOrCancel,
+    logger: Logger | None = None,
+    log_fn: Callable[[Logger | None, str], None] | None = None,
+    is_cancelled: CancelCheck | None = None,
+) -> bool:
+    if not is_wechat_mp_root_page_url(str(getattr(page, "url", "") or "")):
+        return False
+    if log_fn is not None:
+        log_fn(logger, "检测到微信后台根页，尝试点击“小程序”进入后台。")
+    if not _click_mini_program_entry(page):
+        if log_fn is not None:
+            log_fn(logger, "微信后台根页恢复失败：未找到“小程序”入口。")
+        return False
+    for _ in range(15):
+        wait_or_cancel_fn(page, 300, is_cancelled)
+        if not is_wechat_mp_root_page_url(str(getattr(page, "url", "") or "")):
+            if log_fn is not None:
+                log_fn(logger, "微信后台根页恢复成功。")
+            return True
+    if log_fn is not None:
+        log_fn(logger, "微信后台根页恢复失败：点击“小程序”后仍停留在根页。")
     return False
 
 

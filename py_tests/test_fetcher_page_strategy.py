@@ -11,7 +11,9 @@ from py_tests.fetcher_test_support import (
     business_iframe_selector,
     extract_labeled_datetime,
     is_login_timeout_page,
+    is_wechat_mp_root_page_url,
     recover_login_timeout_page,
+    recover_wechat_mp_root_page,
     safe_page_content,
     wait_for_iframe_ready,
 )
@@ -157,6 +159,40 @@ class FetcherPageStrategyTestCase(FetcherTestBase):
         self.assertTrue(recovered)
         self.assertTrue(page.recovered)
         self.assertIn("token=1", page.url)
+
+    def test_recover_wechat_mp_root_page_clicks_mini_program_entry(self):
+        class RootPage:
+            def __init__(self):
+                self.url = "https://mp.weixin.qq.com/"
+                self.recovered = False
+
+            def wait_for_timeout(self, timeout):
+                return None
+
+            def locator(self, selector, **kwargs):
+                if selector == "text=小程序":
+                    return FakeLocator(count=1, click_cb=self._recover)
+                return FakeLocator()
+
+            def _recover(self):
+                self.recovered = True
+                self.url = "https://mp.weixin.qq.com/wxamp/index/index?token=1"
+
+        page = RootPage()
+        recovered = recover_wechat_mp_root_page(
+            page,
+            wait_or_cancel_fn=lambda current_page, wait_ms, _is_cancelled=None: current_page.wait_for_timeout(wait_ms),
+        )
+
+        self.assertTrue(recovered)
+        self.assertTrue(page.recovered)
+        self.assertIn("token=1", page.url)
+
+    def test_is_wechat_mp_root_page_url_only_matches_plain_root_page(self):
+        self.assertTrue(is_wechat_mp_root_page_url("https://mp.weixin.qq.com/"))
+        self.assertTrue(is_wechat_mp_root_page_url("https://mp.weixin.qq.com/?lang=zh_CN"))
+        self.assertFalse(is_wechat_mp_root_page_url("https://mp.weixin.qq.com/wxamp/index/index?token=1"))
+        self.assertFalse(is_wechat_mp_root_page_url("https://mp.weixin.qq.com/?token=1"))
 
     def test_confirm_empty_refund_list_requires_second_confirmation(self):
         from desktop_py.core.fetcher_page_strategy import confirm_empty_refund_list
@@ -1023,3 +1059,65 @@ class FetcherPageStrategyTestCase(FetcherTestBase):
         self.assertTrue(result.ok)
         self.assertEqual(result.note, "当前账号无待处理申请。")
         self.assertEqual(context.storage_state_calls, [("storage\\a.json", True)])
+
+    def test_fetch_paginated_refund_list_captures_fetches_missing_pages(self):
+        from desktop_py.core.fetcher_page_strategy import fetch_paginated_refund_list_captures
+
+        requested_urls: list[str] = []
+        logs: list[str] = []
+        captures = [
+            {
+                "url": "https://mp.weixin.qq.com/api/getUserRefundCheckList?token=t&cur_page=0&per_page=1",
+                "status": 200,
+                "content_type": "application/json",
+                "body": {
+                    "data": {
+                        "total_count": 2,
+                        "user_refund_check_list": [{"ctrl_info": {"appeal_deadline_time": "2026-05-20 10:00:00"}}],
+                    }
+                },
+                "token": "t",
+                "response_type": "list",
+            }
+        ]
+
+        def fake_request(_page, request_url: str):
+            requested_urls.append(request_url)
+            return {
+                "data": {
+                    "total_count": 2,
+                    "user_refund_check_list": [{"ctrl_info": {"appeal_deadline_time": "2026-05-18 10:00:00"}}],
+                }
+            }
+
+        result = fetch_paginated_refund_list_captures(
+            page=object(),
+            captures=captures,
+            logger=logs.append,
+            log_fn=lambda logger, message: logger(message),
+            request_refund_list_page_fn=fake_request,
+        )
+
+        self.assertEqual(len(result), 2)
+        self.assertIn("cur_page=1", requested_urls[0])
+        self.assertIn("退款列表分页补抓成功：第 2/2 页。", logs)
+
+    def test_extract_deadline_from_captures_prefers_earliest_paginated_deadline(self):
+        from desktop_py.core.fetcher_page_strategy import extract_deadline_from_captures
+
+        captures = [
+            {
+                "response_type": "list",
+                "body": {
+                    "data": {"user_refund_check_list": [{"ctrl_info": {"appeal_deadline_time": "2026-05-20 10:00:00"}}]}
+                },
+            },
+            {
+                "response_type": "list",
+                "body": {
+                    "data": {"user_refund_check_list": [{"ctrl_info": {"appeal_deadline_time": "2026-05-18 10:00:00"}}]}
+                },
+            },
+        ]
+
+        self.assertEqual(extract_deadline_from_captures(captures), "2026-05-18 10:00:00")

@@ -144,6 +144,7 @@ def fetch_account_in_page_impl(
     business_iframe_selector_fn: Callable[..., str],
     safe_page_content_fn: Callable[..., str],
     fetch_notifications_fn: Callable[..., dict[str, Any]] | None = None,
+    fetch_paginated_refund_list_captures_fn: Callable[..., list[Any]] | None = None,
     is_empty_refund_list_fn: Callable[..., bool],
     confirm_empty_refund_list_fn: Callable[..., tuple[bool, str]],
     build_empty_refund_result_fn: Callable[..., FetchResult],
@@ -233,6 +234,14 @@ def fetch_account_in_page_impl(
                 is_cancelled=is_cancelled,
             )
         current_captures = captures[feedback_capture_start:]
+        if callable(fetch_paginated_refund_list_captures_fn):
+            with fetch_step(manifest, "补抓退款列表分页"):
+                current_captures = fetch_paginated_refund_list_captures_fn(
+                    page=page,
+                    captures=current_captures,
+                    logger=logger,
+                    log_fn=log_fn,
+                )
         add_fetch_evidence(
             manifest,
             kind="network",

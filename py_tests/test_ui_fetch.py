@@ -243,6 +243,33 @@ class UiFetchTestCase(UiTestBase):
         self.assertNotIn("诊断产物", log_text)
         self.assertNotIn("fetch_manifest.json", log_text)
 
+    def test_mark_fetch_progress_cleans_diagnostic_artifacts_without_logging_path(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window.accounts = [
+            AccountConfig(name="主账号", state_path="storage/shared.json", is_entry_account=True),
+            AccountConfig(name="导入账号A", state_path="storage/shared.json", is_entry_account=False),
+        ]
+
+        with (
+            patch("desktop_py.ui.main_window.save_accounts"),
+            patch("desktop_py.ui.main_window.save_settings"),
+            patch("desktop_py.ui.main_window.cleanup_account_diagnostics", return_value=2) as mock_cleanup,
+        ):
+            window._mark_fetch_progress(
+                FetchResult(
+                    account_name="导入账号A",
+                    ok=True,
+                    actual_account_name="萌萌连消",
+                    deadline_text="",
+                    note="当前账号无待处理申请。",
+                    page_url="https://example.com/detail",
+                )
+            )
+
+        mock_cleanup.assert_called_once_with("导入账号A", retention_days=14)
+        self.assertNotIn("fetch_manifest.json", window.log_edit.toPlainText())
+
     def test_mark_fetch_progress_keeps_failure_reason_in_result_log(self):
         window = MainWindow()
         self.addCleanup(window.close)

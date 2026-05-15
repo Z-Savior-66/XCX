@@ -8,6 +8,7 @@ from typing import Any
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from desktop_py.core.diagnostic_log import log_session_offline, log_session_renew_failed
 from desktop_py.core.fetcher_support import (
     FetchError,
     ensure_account_session_available,
@@ -91,6 +92,8 @@ def _wait_for_login_success(
                 result = _probe_account_session_result(
                     verify_page,
                     temp_account,
+                    logger=logger,
+                    log_fn=log_fn,
                     wait_for_url_contains_fn=lambda current_page, keywords, timeout_ms=10000, is_cancelled=None: (
                         _wait_for_backend_session(
                             current_page,
@@ -304,6 +307,8 @@ def validate_account_state_impl(
             verification = _probe_account_session_result(
                 page,
                 account,
+                logger=logger,
+                log_fn=log_fn,
                 wait_for_url_contains_fn=wait_for_url_contains_fn,
                 timeout_ms=10000,
             )
@@ -314,6 +319,8 @@ def validate_account_state_impl(
                 False,
                 status=SESSION_STATUS_EXPIRED,
                 reason="等待后台页面超时",
+                branch="backend_page_timeout",
+                page_url=str(getattr(page, "url", "") or ""),
                 should_retry=True,
             )
         finally:
@@ -331,6 +338,8 @@ def validate_account_state_impl(
         actual_account_name=verification.actual_account_name,
         feedback_url=verification.feedback_url,
         reason=verification.reason,
+        branch=verification.branch,
+        page_url=verification.page_url,
         should_retry=verification.should_retry,
         should_relogin=verification.should_relogin,
         session_source=session_source_for_profile_dir(normalized_profile_dir),
@@ -338,6 +347,13 @@ def validate_account_state_impl(
     apply_session_verification(account, verification, profile_dir=normalized_profile_dir)
     reason = f"：{verification.reason}" if not valid and verification.reason else ""
     log_fn(logger, f"账号 {account.name} 登录态校验结果：{'有效' if valid else '无效'}{reason}")
+    if not valid:
+        log_session_offline(
+            account.name,
+            verification.reason or "未识别到可用后台登录态",
+            branch=verification.branch,
+            page_url=verification.page_url,
+        )
     return valid
 
 
@@ -456,6 +472,8 @@ def _verify_saved_state_file(
             False,
             status=SESSION_STATUS_EXPIRED,
             reason="保存后复验等待后台页面超时",
+            branch="saved_state_verify_timeout",
+            page_url=str(getattr(verify_page, "url", "") or ""),
             should_retry=True,
         )
     finally:
@@ -511,6 +529,8 @@ def renew_account_state_impl(
             verification = _probe_account_session_result(
                 page,
                 account,
+                logger=logger,
+                log_fn=log_fn,
                 wait_for_url_contains_fn=wait_for_url_contains_fn,
                 timeout_ms=10000,
             )
@@ -561,6 +581,8 @@ def renew_account_state_impl(
                             actual_account_name=verification.actual_account_name,
                             feedback_url=verification.feedback_url,
                             reason=f"保存后复验失败：{verification.reason}",
+                            branch=verification.branch,
+                            page_url=verification.page_url,
                             should_retry=verification.should_retry,
                             should_relogin=verification.should_relogin,
                         )
@@ -573,6 +595,8 @@ def renew_account_state_impl(
                         False,
                         status=SESSION_STATUS_EXPIRED,
                         reason=reason,
+                        branch="renew_persist_failed",
+                        page_url=str(getattr(page, "url", "") or ""),
                         should_retry=True,
                     )
         except PlaywrightTimeoutError:
@@ -581,6 +605,8 @@ def renew_account_state_impl(
                 False,
                 status=SESSION_STATUS_EXPIRED,
                 reason="等待后台页面超时",
+                branch="backend_page_timeout",
+                page_url=str(getattr(page, "url", "") or ""),
                 should_retry=True,
             )
         finally:
@@ -597,6 +623,8 @@ def renew_account_state_impl(
         actual_account_name=verification.actual_account_name,
         feedback_url=verification.feedback_url,
         reason=verification.reason,
+        branch=verification.branch,
+        page_url=verification.page_url,
         should_retry=verification.should_retry,
         should_relogin=verification.should_relogin,
         session_source=session_source_for_profile_dir(normalized_profile_dir),
@@ -606,5 +634,17 @@ def renew_account_state_impl(
         log_fn(logger, f"账号 {account.name} 自动续期成功。")
     else:
         reason = f"：{verification.reason}" if verification.reason else ""
-        log_fn(logger, f"账号 {account.name} 自动续期失败{reason}。")
+        extra = []
+        if verification.branch:
+            extra.append(f"判定分支={verification.branch}")
+        if verification.page_url:
+            extra.append(f"page.url={verification.page_url}")
+        extra_text = f"（{'；'.join(extra)}）" if extra else ""
+        log_fn(logger, f"账号 {account.name} 自动续期失败{reason}{extra_text}。")
+        log_session_renew_failed(
+            account.name,
+            verification.reason or "未识别到可用后台登录态",
+            branch=verification.branch,
+            page_url=verification.page_url,
+        )
     return renewed

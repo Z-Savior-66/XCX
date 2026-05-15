@@ -4,11 +4,12 @@ import json
 import os
 import sys
 import tempfile
+import time
 from dataclasses import fields
 from pathlib import Path
 from typing import Any, cast
 
-from desktop_py.core.models import AccountConfig, AppSettings, FetchResult
+from desktop_py.core.models import AccountConfig, AppSettings, FetchResult, PendingNotification
 
 APP_NAME = "小程序工具"
 SHARED_BROWSER_PROFILE_DIR_NAME = "browser_profile"
@@ -40,6 +41,16 @@ STORAGE_DIR = PROJECT_ROOT / "storage"
 PY_OUTPUT_DIR = PROJECT_ROOT / "output" / "desktop_py"
 ACCOUNTS_FILE = DATA_DIR / "accounts.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
+PENDING_NOTIFICATIONS_FILE = DATA_DIR / "pending_notifications.json"
+DIAGNOSTIC_ARTIFACT_NAMES = frozenset(
+    {
+        "fetch_manifest.json",
+        "page.html",
+        "iframe.html",
+        "iframe.txt",
+        "responses.json",
+    }
+)
 
 
 def read_json_file(path: Path) -> Any:
@@ -162,6 +173,44 @@ def save_settings(settings: AppSettings) -> None:
     _write_text_atomic(SETTINGS_FILE, json.dumps(settings.to_dict(), ensure_ascii=False, indent=2) + "\n")
 
 
+def load_pending_notifications() -> list[PendingNotification]:
+    ensure_runtime_dirs()
+    if not PENDING_NOTIFICATIONS_FILE.exists():
+        return []
+    data = cast(list[dict[str, Any]], read_json_file(PENDING_NOTIFICATIONS_FILE))
+    allowed = {item.name for item in fields(PendingNotification)}
+    return [PendingNotification(**{key: value for key, value in item.items() if key in allowed}) for item in data]
+
+
+def save_pending_notifications(notifications: list[PendingNotification]) -> None:
+    ensure_runtime_dirs()
+    _write_text_atomic(
+        PENDING_NOTIFICATIONS_FILE,
+        json.dumps([notification.to_dict() for notification in notifications], ensure_ascii=False, indent=2) + "\n",
+    )
+
+
+def append_pending_notification(notification: PendingNotification) -> bool:
+    notifications = load_pending_notifications()
+    if any(item.id == notification.id for item in notifications):
+        return False
+    notifications.append(notification)
+    save_pending_notifications(notifications)
+    return True
+
+
+def remove_pending_notifications(notification_ids: list[str]) -> int:
+    if not notification_ids:
+        return 0
+    target_ids = set(notification_ids)
+    notifications = load_pending_notifications()
+    remaining = [notification for notification in notifications if notification.id not in target_ids]
+    removed = len(notifications) - len(remaining)
+    if removed:
+        save_pending_notifications(remaining)
+    return removed
+
+
 def account_state_path(name: str) -> str:
     safe_name = "".join(char if char.isalnum() else "_" for char in name).strip("_") or "account"
     return str(STORAGE_DIR / f"{safe_name}.json")
@@ -200,3 +249,22 @@ def write_fetch_result(account_name: str, result: FetchResult, extra: dict | Non
     if extra:
         payload["extra"] = extra
     write_account_output_json(account_name, "result.json", payload)
+
+
+def cleanup_account_diagnostics(account_name: str, *, retention_days: int = 14) -> int:
+    if retention_days <= 0:
+        return 0
+    account_dir = account_output_dir(account_name)
+    cutoff = time.time() - retention_days * 24 * 60 * 60
+    removed = 0
+    for path in account_dir.iterdir():
+        if not path.is_file() or path.name not in DIAGNOSTIC_ARTIFACT_NAMES:
+            continue
+        try:
+            if path.stat().st_mtime >= cutoff:
+                continue
+            path.unlink()
+            removed += 1
+        except OSError:
+            continue
+    return removed

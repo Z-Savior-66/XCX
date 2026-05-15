@@ -5,7 +5,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import desktop_py_cli
-from desktop_py.core.models import AccountConfig, AppSettings, FetchResult
+from desktop_py.core.models import AccountConfig, AppSettings, FetchResult, PendingNotification
 
 
 class CliTestCase(unittest.TestCase):
@@ -175,6 +175,67 @@ class CliTestCase(unittest.TestCase):
         sent_summary = mock_send.call_args.args[1]
         self.assertIn("导入账号B", sent_summary)
         self.assertNotIn("导入账号A", sent_summary)
+
+    def test_notify_saves_pending_notification_when_send_fails(self):
+        accounts = [
+            AccountConfig(name="导入账号A", state_path="storage/shared.json", is_entry_account=False, enabled=True),
+        ]
+
+        with (
+            patch("desktop_py_cli.load_accounts", return_value=accounts),
+            patch("desktop_py_cli.load_settings", return_value=AppSettings(headless_fetch=True, feishu_webhook="hook")),
+            patch(
+                "desktop_py_cli.fetch_account",
+                return_value=FetchResult(account_name="导入账号A", ok=True, deadline_text="2026-04-20 09:00:00"),
+            ),
+            patch("desktop_py_cli.send_feishu_text", side_effect=RuntimeError("发送失败")),
+            patch("desktop_py_cli.append_pending_notification") as mock_append,
+            patch("sys.argv", ["desktop_py_cli.py", "notify"]),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "发送失败"):
+                desktop_py_cli.main()
+
+        mock_append.assert_called_once()
+        self.assertIn("导入账号A", mock_append.call_args.args[0].content)
+
+    def test_resend_notifications_sends_pending_items_and_removes_successes(self):
+        notification = PendingNotification(
+            id="abc123",
+            content="待补发内容",
+            created_at="2026-05-15 22:00:00",
+        )
+        captured = io.StringIO()
+
+        with (
+            patch("desktop_py_cli.load_accounts", return_value=[]),
+            patch("desktop_py_cli.load_settings", return_value=AppSettings(feishu_webhook="hook")),
+            patch("desktop_py_cli.load_pending_notifications", return_value=[notification]),
+            patch("desktop_py_cli.send_feishu_text") as mock_send,
+            patch("desktop_py_cli.remove_pending_notifications") as mock_remove,
+            patch("sys.argv", ["desktop_py_cli.py", "resend-notifications"]),
+            redirect_stdout(captured),
+        ):
+            result = desktop_py_cli.main()
+
+        self.assertEqual(result, 0)
+        mock_send.assert_called_once_with("hook", "待补发内容")
+        mock_remove.assert_called_once_with(["abc123"])
+        self.assertIn("飞书补发完成，已发送 1 条", captured.getvalue())
+
+    def test_resend_notifications_reports_empty_queue(self):
+        captured = io.StringIO()
+
+        with (
+            patch("desktop_py_cli.load_accounts", return_value=[]),
+            patch("desktop_py_cli.load_settings", return_value=AppSettings(feishu_webhook="hook")),
+            patch("desktop_py_cli.load_pending_notifications", return_value=[]),
+            patch("sys.argv", ["desktop_py_cli.py", "resend-notifications"]),
+            redirect_stdout(captured),
+        ):
+            result = desktop_py_cli.main()
+
+        self.assertEqual(result, 0)
+        self.assertIn("当前没有待补发飞书消息", captured.getvalue())
 
 
 if __name__ == "__main__":

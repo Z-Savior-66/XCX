@@ -47,6 +47,7 @@ class AppSettings:
     browser_profile_dir: str = ""
     current_main_account_name: str = ""
     auto_fetch_push_enabled: bool = False
+    diagnostic_retention_days: int = 14
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -63,6 +64,17 @@ class FetchResult:
     page_url: str = ""
     note: str = ""
     fetched_at: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class PendingNotification:
+    id: str
+    content: str
+    created_at: str
+    source: str = "飞书汇总"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

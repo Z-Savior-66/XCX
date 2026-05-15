@@ -253,6 +253,7 @@ def build_actions(window) -> QGridLayout:
         ("抓取并推送", window.auto_fetch_and_send, 2, 2),
         ("抓取选中", window.fetch_selected, 2, 0),
         ("发送飞书", window.send_summary, 2, 1),
+        ("补发飞书", window.resend_pending_notifications, 3, 1),
     ]
     for text, handler, row, col in actions:
         button = QPushButton(text)
@@ -271,6 +272,9 @@ def build_actions(window) -> QGridLayout:
         if text == "发送飞书":
             window.send_summary_button = button
             button.setProperty("role", "success")
+        if text == "补发飞书":
+            window.resend_pending_button = button
+            button.setProperty("role", "primary")
         if text == "抓取并推送":
             button.setProperty("role", "success")
         elif text not in {"删除账号", "停止抓取"}:
