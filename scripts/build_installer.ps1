@@ -71,14 +71,21 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $distRoot = Join-Path $projectRoot "dist"
 $installerSourceRoot = Join-Path $projectRoot "build\installer-source"
 $appName = "小程序工具"
+$appVersion = "1.0.0"
+$appPublisher = "本地构建"
 $installerSourceDir = Join-Path $installerSourceRoot $appName
 $installerExeName = "$appName.exe"
 $outputBaseFilename = if ($IncludeOfflineChromium) { "$appName-离线版" } else { "$appName-标准版" }
+$appAssetsPath = Join-Path $projectRoot "assets"
+$appIconPath = Join-Path $appAssetsPath "app_icon.ico"
 $innoCompiler = Resolve-InnoCompilerPath -ProjectRoot $projectRoot
 if (-not $SkipVerification) {
     Invoke-LocalVerification -ProjectRoot $projectRoot
 }
 Assert-PyInstallerAvailable
+if (-not (Test-Path $appIconPath)) {
+    throw "未找到应用图标：assets\app_icon.ico"
+}
 $offlineRuntimeSource = if ($IncludeOfflineChromium) {
     Resolve-OfflineRuntimeSource -ProjectRoot $projectRoot
 } else {
@@ -111,6 +118,8 @@ try {
         --workpath (Join-Path $projectRoot "build\pyinstaller") `
         --specpath $installerSourceRoot `
         --name $appName `
+        --icon $appIconPath `
+        --add-data "$appAssetsPath;assets" `
         --collect-all playwright `
         desktop_main.py
 
@@ -154,7 +163,14 @@ try {
         Copy-Item -LiteralPath $offlineRuntimeSource -Destination $offlineRuntimeTarget -Recurse -Force
     }
 
-    & $innoCompiler "/DMySourceDir=$installerSourceDir" "/DMyAppExeName=$installerExeName" "/DMyOutputBaseFilename=$outputBaseFilename" $installerScript
+    & $innoCompiler `
+        "/DMySourceDir=$installerSourceDir" `
+        "/DMyAppExeName=$installerExeName" `
+        "/DMyOutputBaseFilename=$outputBaseFilename" `
+        "/DMyAppIconPath=$appIconPath" `
+        "/DMyAppVersion=$appVersion" `
+        "/DMyAppPublisher=$appPublisher" `
+        $installerScript
     if (Test-Path $installerSourceRoot) {
         Remove-Item -LiteralPath $installerSourceRoot -Recurse -Force
     }

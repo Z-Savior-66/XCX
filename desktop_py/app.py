@@ -1,15 +1,25 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import QEventLoop, Qt, QTimer
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QProgressDialog, QStyle, QSystemTrayIcon
 
 from desktop_py.core.browser_runtime import install_playwright_browsers, playwright_browsers_ready
 from desktop_py.ui.main_window import MainWindow
 from desktop_py.ui.message_dialog import MessageDialog
 from desktop_py.ui.workers import TaskThread
+
+
+def resolve_app_asset_path(relative_path: str | Path) -> Path:
+    bundle_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+    return bundle_root / relative_path
+
+
+def load_app_icon() -> QIcon:
+    return QIcon(str(resolve_app_asset_path(Path("assets") / "app_icon.png")))
 
 
 def ensure_browser_runtime(app: QApplication) -> bool:
@@ -65,11 +75,18 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("小程序工具")
     app.setQuitOnLastWindowClosed(False)
+    app_icon = load_app_icon()
+    if not app_icon.isNull():
+        app.setWindowIcon(app_icon)
     if not ensure_browser_runtime(app):
         return 1
     window = MainWindow()
+    if not app_icon.isNull():
+        window.setWindowIcon(app_icon)
     tray_icon = QSystemTrayIcon(window)
-    tray_icon.setIcon(app.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon))
+    tray_icon.setIcon(
+        app_icon if not app_icon.isNull() else app.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+    )
     tray_icon.setToolTip("小程序工具")
 
     tray_menu = QMenu()

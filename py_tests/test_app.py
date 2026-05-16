@@ -5,9 +5,10 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QObject, Signal
+from PySide6.QtGui import QImageReader
 from PySide6.QtWidgets import QApplication
 
-from desktop_py.app import ensure_browser_runtime
+from desktop_py.app import ensure_browser_runtime, load_app_icon, resolve_app_asset_path
 from desktop_py.ui.workers import TaskThread
 
 
@@ -80,6 +81,14 @@ class AppTestCase(unittest.TestCase):
             self.assertTrue(ensure_browser_runtime(self.app))
 
         mock_install.assert_not_called()
+
+    def test_app_icon_asset_loads(self):
+        icon_path = resolve_app_asset_path("assets/app_icon.png")
+        image_size = QImageReader(str(icon_path)).size()
+
+        self.assertTrue(icon_path.is_file())
+        self.assertEqual((image_size.width(), image_size.height()), (2048, 2048))
+        self.assertFalse(load_app_icon().isNull())
 
     def test_ensure_browser_runtime_shows_warning_when_install_fails(self):
         with (
