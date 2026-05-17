@@ -43,6 +43,7 @@ def account_for_auto_renew(window: Any, candidates: list | None = None) -> Any:
 
 def renew_switch_account_names(window: Any, account: Any) -> list[str]:
     state_path = str(getattr(account, "state_path", "") or "").strip()
+    uses_shared_profile = bool(str(getattr(getattr(window, "settings", None), "browser_profile_dir", "") or "").strip())
     names: list[str] = []
     for item in getattr(window, "accounts", []) or []:
         if item is account or bool(getattr(item, "is_entry_account", False)):
@@ -50,7 +51,7 @@ def renew_switch_account_names(window: Any, account: Any) -> list[str]:
         item_name = str(getattr(item, "name", "") or "").strip()
         if not item_name or item_name in names:
             continue
-        if state_path and str(getattr(item, "state_path", "") or "").strip() != state_path:
+        if not uses_shared_profile and state_path and str(getattr(item, "state_path", "") or "").strip() != state_path:
             continue
         if not bool(getattr(item, "enabled", True)):
             continue

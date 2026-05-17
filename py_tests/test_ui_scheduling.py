@@ -273,6 +273,7 @@ class UiSchedulingTestCase(UiTestBase):
         with patch.dict(os.environ, {"QT_QPA_PLATFORM": "windows"}):
             window = MainWindow()
             self.addCleanup(window.close)
+            window.settings.browser_profile_dir = ""
             window.accounts = [
                 AccountConfig(name="主账号", state_path="storage/shared.json", is_entry_account=True),
                 AccountConfig(name="导入账号A", state_path="storage/shared.json", is_entry_account=False),
@@ -292,6 +293,32 @@ class UiSchedulingTestCase(UiTestBase):
             self.assertEqual(
                 mock_renew.call_args.args[4],
                 ["导入账号A"],
+            )
+
+    def test_run_auto_renew_uses_shared_profile_candidates_across_state_paths(self):
+        with patch.dict(os.environ, {"QT_QPA_PLATFORM": "windows"}):
+            window = MainWindow()
+            self.addCleanup(window.close)
+            window.settings.browser_profile_dir = "C:/profile"
+            window.accounts = [
+                AccountConfig(name="主账号", state_path="storage/main.json", is_entry_account=True),
+                AccountConfig(name="导入账号A", state_path="storage/shared-a.json", is_entry_account=False),
+                AccountConfig(name="导入账号B", state_path="", is_entry_account=False),
+                AccountConfig(
+                    name="禁用账号", state_path="storage/shared-b.json", is_entry_account=False, enabled=False
+                ),
+            ]
+
+            with patch.object(window, "_run_thread") as mock_run_thread:
+                window._run_auto_renew()
+
+            job = mock_run_thread.call_args.args[0]
+            with patch("desktop_py.ui.main_window.renew_account_state", return_value=True) as mock_renew:
+                self.assertTrue(job(lambda _message: None))
+
+            self.assertEqual(
+                mock_renew.call_args.args[4],
+                ["导入账号A", "导入账号B"],
             )
 
     def test_run_auto_renew_does_not_inherit_feedback_url_from_shared_account(self):

@@ -313,19 +313,21 @@ def fetch_switchable_accounts(
     logger: Logger | None = None,
     profile_dir: str = "",
 ) -> list[str]:
-    names = fetch_switchable_accounts_impl(
-        account,
-        headless=headless,
-        logger=logger,
-        profile_dir=profile_dir,
-        sync_playwright_fn=sync_playwright,
-        path_exists_fn=Path.exists,
-        validate_shared_browser_profile_dir_fn=validate_shared_browser_profile_dir,
-        create_browser_context_fn=create_browser_context,
-        wait_for_url_contains_fn=wait_for_url_contains,
-        list_switchable_accounts_fn=list_switchable_accounts,
-        close_page_fn=_close_page,
-        close_context_and_browser_fn=_close_context_and_browser,
+    names = _run_blocking_fetch_call(
+        lambda: fetch_switchable_accounts_impl(
+            account,
+            headless=headless,
+            logger=logger,
+            profile_dir=profile_dir,
+            sync_playwright_fn=sync_playwright,
+            path_exists_fn=Path.exists,
+            validate_shared_browser_profile_dir_fn=validate_shared_browser_profile_dir,
+            create_browser_context_fn=create_browser_context,
+            wait_for_url_contains_fn=wait_for_url_contains,
+            list_switchable_accounts_fn=list_switchable_accounts,
+            close_page_fn=_close_page,
+            close_context_and_browser_fn=_close_context_and_browser,
+        )
     )
     _log(logger, f"已读取到 {len(names)} 个可切换账号。")
     return names

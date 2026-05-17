@@ -1678,6 +1678,24 @@ class FetcherSessionTestCase(FetcherTestBase):
         self.assertEqual(call_count, 1)
         self.assertEqual(args[:3], (account, 120, "C:/profile"))
 
+    def test_fetch_switchable_accounts_runs_in_helper_thread_when_asyncio_loop_exists(self):
+        account = AccountConfig(name="主账号", state_path="storage/shared.json")
+
+        async def runner():
+            with patch(
+                "desktop_py.core.fetcher.fetch_switchable_accounts_impl",
+                return_value=["导入账号A", "导入账号B"],
+            ) as mock_impl:
+                names = fetch_switchable_accounts(account, headless=False, profile_dir="C:/profile")
+            return names, mock_impl.call_count, mock_impl.call_args.kwargs
+
+        names, call_count, kwargs = asyncio.run(runner())
+
+        self.assertEqual(names, ["导入账号A", "导入账号B"])
+        self.assertEqual(call_count, 1)
+        self.assertFalse(kwargs["headless"])
+        self.assertEqual(kwargs["profile_dir"], "C:/profile")
+
     def test_renew_account_state_runs_in_helper_thread_when_asyncio_loop_exists(self):
         account = AccountConfig(name="主账号", state_path="storage/shared.json")
 
