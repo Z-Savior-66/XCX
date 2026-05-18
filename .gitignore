@@ -16,9 +16,7 @@ output/
 dist/
 build/
 ms-playwright/
-tools/*
-!tools/inno/
-!tools/inno/**
+tools/
 
 # Python 缓存与本地工具输出
 __pycache__/
