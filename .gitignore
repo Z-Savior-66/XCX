@@ -6,8 +6,7 @@ node_modules/
 .idea/
 
 # 本地账号、登录态和浏览器资料
-data/accounts.json
-data/settings.json
+data/
 storage/
 browser_profile/
 
