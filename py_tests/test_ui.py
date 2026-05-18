@@ -51,6 +51,28 @@ class UiSmokeTestCase(UiTestBase):
         self.assertEqual(window.accounts[0].feedback_url, window.accounts[1].feedback_url)
         mock_save_accounts.assert_called_once_with(window.accounts)
 
+    def test_initialize_window_state_does_not_crash_when_normalized_accounts_cannot_be_saved(self):
+        shared_feedback_url = "https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?token=shared"
+        accounts = [
+            AccountConfig(name="主账号", state_path="storage/shared.json", is_entry_account=True, feedback_url=""),
+            AccountConfig(
+                name="导入账号A",
+                state_path="storage/shared.json",
+                is_entry_account=False,
+                feedback_url=shared_feedback_url,
+            ),
+        ]
+
+        with (
+            patch("desktop_py.ui.main_window.load_accounts", return_value=accounts),
+            patch("desktop_py.ui.main_window.load_settings", return_value=AppSettings()),
+            patch("desktop_py.ui.main_window.save_accounts", side_effect=PermissionError("replace denied")),
+        ):
+            window = MainWindow()
+            self.addCleanup(window.close)
+
+        self.assertEqual(window.accounts[0].feedback_url, window.accounts[1].feedback_url)
+
     def test_window_hides_minimize_and_maximize_buttons(self):
         window = MainWindow()
         self.addCleanup(window.close)

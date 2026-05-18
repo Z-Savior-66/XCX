@@ -7,6 +7,8 @@ from typing import Any, cast
 from desktop_py.core.fetcher_rules import DEFAULT_NOTIFICATION_RULES, match_notification_title
 from desktop_py.core.fetcher_support import (
     FetchError,
+    FetchErrorCode,
+    fetch_error_code,
     is_login_timeout_page,
     recover_login_timeout_page,
 )
@@ -105,7 +107,18 @@ def open_notification_center(
 
     entry = page.get_by_text(NOTIFICATION_ENTRY_TEXT, exact=False)
     if entry.count() == 0:
-        raise FetchError("未找到通知中心入口。")
+        raise FetchError(
+            "未找到通知中心入口。",
+            code=FetchErrorCode.NOTIFICATION_ENTRY_MISSING,
+            evidence=[
+                {
+                    "kind": "page",
+                    "label": "通知中心入口",
+                    "summary": "后台页面未出现通知中心入口文本。",
+                    "metadata": {"page_url": str(getattr(page, "url", "") or "")},
+                }
+            ],
+        )
     try:
         entry.first.click(timeout=2000)
     except Exception:
@@ -115,7 +128,18 @@ def open_notification_center(
     except Exception:
         pass
     if NOTIFICATION_CENTER_URL_KEYWORD not in page.url and page.locator(NOTIFICATION_CONTAINER_SELECTOR).count() == 0:
-        raise FetchError("进入通知中心失败。")
+        raise FetchError(
+            "进入通知中心失败。",
+            code=FetchErrorCode.NOTIFICATION_CENTER_OPEN_FAILED,
+            evidence=[
+                {
+                    "kind": "page",
+                    "label": "通知中心页面",
+                    "summary": "点击入口后未进入通知中心页面，也未发现通知容器。",
+                    "metadata": {"page_url": str(getattr(page, "url", "") or "")},
+                }
+            ],
+        )
 
 
 def fetch_notifications(
@@ -163,4 +187,5 @@ def fetch_notifications(
             "notifications": [],
             "summary": message,
             "page_url": page.url,
+            "error_code": fetch_error_code(exc),
         }

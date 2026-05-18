@@ -58,6 +58,7 @@ from desktop_py.core.fetcher_support import (
     _fallback_from_responses,
     _log,
     build_feedback_url,
+    build_ios_refund_feedback_url,
     business_iframe_selector,
     create_browser_context,
     safe_page_content,
@@ -89,6 +90,7 @@ from desktop_py.core.models import AccountConfig, FetchResult
 from desktop_py.core.notification_page_strategy import fetch_notifications
 from desktop_py.core.parser import extract_labeled_datetime
 from desktop_py.core.store import account_output_dir, validate_shared_browser_profile_dir
+from desktop_py.core.transaction_complaint_strategy import fetch_transaction_complaints
 
 # 稳定公开接口只包含主流程入口；
 # 其余符号继续保留在模块命名空间中，仅用于兼容现有测试和局部内部调用。
@@ -375,11 +377,13 @@ def _fetch_account_in_page(
         log_fn=_log,
         open_feedback_page_fn=open_feedback_page,
         build_feedback_url_fn=build_feedback_url,
+        build_ios_refund_feedback_url_fn=build_ios_refund_feedback_url,
         wait_for_iframe_ready_fn=wait_for_iframe_ready,
         resolve_frame_locator_fn=resolve_frame_locator,
         business_iframe_selector_fn=business_iframe_selector,
         safe_page_content_fn=safe_page_content,
         fetch_notifications_fn=fetch_notifications,
+        fetch_transaction_complaints_fn=fetch_transaction_complaints,
         fetch_paginated_refund_list_captures_fn=lambda **kwargs: fetch_paginated_refund_list_captures(
             **kwargs,
             request_refund_list_page_fn=request_refund_list_page,

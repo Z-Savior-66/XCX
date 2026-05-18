@@ -2,6 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from desktop_py.core.account_status import (
+    FETCH_STATUS_FAILURE,
+    FETCH_STATUS_SUCCESS,
+    fetch_status_from_result,
+)
+from desktop_py.core.account_status import (
+    display_result_text as display_result_text_from_status,
+)
+from desktop_py.core.account_status import (
+    is_expected_empty_result_note as is_expected_empty_result_note_from_core,
+)
 from desktop_py.core.models import SESSION_STATUS_VALID, AccountConfig, FetchResult
 
 
@@ -16,7 +27,7 @@ def next_auto_fetch_push_interval_ms(now: datetime | None = None) -> int:
 def apply_fetch_result(account: AccountConfig, result: FetchResult) -> str:
     account.last_fetch_at = result.fetched_at
     account.last_deadline = result.deadline_text
-    account.last_status = "抓取成功" if result.ok or is_expected_empty_result_note(result.note) else "抓取失败"
+    account.last_status = fetch_status_from_result(result.ok, result.note)
     actual_note = f"当前实际账号：{result.actual_account_name}" if result.actual_account_name else ""
     account.last_note = "；".join(item for item in [result.note, actual_note] if item)
     account.feedback_url = result.page_url
@@ -37,7 +48,7 @@ def apply_batch_fetch_results(accounts: list[AccountConfig], results: list[Fetch
             continue
         account.last_fetch_at = result.fetched_at
         account.last_deadline = result.deadline_text
-        account.last_status = "抓取成功" if result.ok or is_expected_empty_result_note(result.note) else "抓取失败"
+        account.last_status = fetch_status_from_result(result.ok, result.note)
         actual_note = f"当前实际账号：{result.actual_account_name}" if result.actual_account_name else ""
         account.last_note = "；".join(item for item in [result.note, actual_note] if item)
         if result.page_url:
@@ -58,7 +69,7 @@ def is_no_business_page_note(note: str) -> bool:
 
 
 def is_expected_empty_result_note(note: str) -> bool:
-    return is_no_business_page_note(note) or "当前账号无待处理申请" in note
+    return is_expected_empty_result_note_from_core(note)
 
 
 def display_deadline_text(account: AccountConfig) -> str:
@@ -66,9 +77,9 @@ def display_deadline_text(account: AccountConfig) -> str:
         return "--"
     if is_no_business_page_note(account.last_note):
         return "无页面"
-    if account.last_status == "抓取成功":
+    if account.last_status == FETCH_STATUS_SUCCESS:
         return account.last_deadline or "无待处理"
-    if account.last_status == "抓取失败":
+    if account.last_status == FETCH_STATUS_FAILURE:
         return account.last_note or "抓取失败"
     return account.last_deadline
 
@@ -80,11 +91,7 @@ def deadline_tooltip_text(account: AccountConfig) -> str:
 
 
 def display_result_text(account: AccountConfig) -> str:
-    if account.last_status in {"抓取成功", "登录有效", "已保存登录态"}:
-        return "完成"
-    if not account.last_status or account.last_status == "检测中":
-        return ""
-    return "失败"
+    return display_result_text_from_status(account.last_status)
 
 
 def parse_deadline_for_sort(deadline_text: str) -> datetime | None:

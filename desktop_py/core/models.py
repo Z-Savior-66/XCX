@@ -12,12 +12,14 @@ SESSION_STATUS_NEEDS_RELOGIN = "needs_relogin"
 
 SESSION_SOURCE_STATE_FILE = "state_file"
 SESSION_SOURCE_PROFILE = "profile"
+CONFIG_SCHEMA_VERSION = 1
 
 
 @dataclass
 class AccountConfig:
     name: str
     state_path: str
+    schema_version: int = CONFIG_SCHEMA_VERSION
     is_entry_account: bool = True
     feedback_url: str = ""
     home_url: str = "https://mp.weixin.qq.com/"
@@ -41,6 +43,7 @@ class AccountConfig:
 
 @dataclass
 class AppSettings:
+    schema_version: int = CONFIG_SCHEMA_VERSION
     feishu_webhook: str = ""
     login_wait_seconds: int = 120
     headless_fetch: bool = True
@@ -48,6 +51,11 @@ class AppSettings:
     current_main_account_name: str = ""
     auto_fetch_push_enabled: bool = False
     diagnostic_retention_days: int = 14
+    next_auto_renew_at: str = ""
+    next_auto_fetch_push_at: str = ""
+    auto_renew_schedule_reason: str = ""
+    auto_fetch_push_schedule_reason: str = ""
+    schedule_reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -74,6 +82,7 @@ class PendingNotification:
     id: str
     content: str
     created_at: str
+    schema_version: int = CONFIG_SCHEMA_VERSION
     source: str = "飞书汇总"
 
     def to_dict(self) -> dict[str, Any]:

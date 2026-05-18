@@ -4,6 +4,7 @@ from desktop_py.core.fetcher_rules import (
     DEFAULT_FETCH_RULE_VERSION,
     DEFAULT_NOTIFICATION_RULES,
     DEFAULT_REFUND_RULES,
+    DEFAULT_TRANSACTION_COMPLAINT_RULES,
     deadline_field_score,
     match_notification_title,
 )
@@ -14,6 +15,13 @@ class FetcherRulesTestCase(unittest.TestCase):
     def test_default_rules_expose_stable_version(self):
         self.assertEqual(DEFAULT_REFUND_RULES.version, DEFAULT_FETCH_RULE_VERSION)
         self.assertEqual(DEFAULT_NOTIFICATION_RULES.version, DEFAULT_FETCH_RULE_VERSION)
+        self.assertEqual(DEFAULT_TRANSACTION_COMPLAINT_RULES.version, DEFAULT_FETCH_RULE_VERSION)
+
+    def test_transaction_complaint_rules_keep_current_contract(self):
+        self.assertEqual(DEFAULT_TRANSACTION_COMPLAINT_RULES.target_account_names, ("当代情诗摘抄合集", "经典诗词摘抄"))
+        self.assertEqual(DEFAULT_TRANSACTION_COMPLAINT_RULES.pending_status, 201)
+        self.assertEqual(DEFAULT_TRANSACTION_COMPLAINT_RULES.pending_status_text, "待处理")
+        self.assertEqual(DEFAULT_TRANSACTION_COMPLAINT_RULES.page_size, 50)
 
     def test_deadline_field_priority_prefers_appeal_deadline(self):
         self.assertGreater(

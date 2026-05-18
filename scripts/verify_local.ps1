@@ -1,37 +1,55 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-function Invoke-VerificationStep {
-    param(
-        [string]$Name,
-        [string]$Command,
-        [string[]]$Arguments
-    )
-
-    $displayCommand = "$Command $($Arguments -join ' ')"
-    Write-Host ""
-    Write-Host "开始验证：$Name"
-    Write-Host "执行命令：$displayCommand"
-
-    & $Command @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "验证失败：$displayCommand"
-    }
-}
-
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $env:QT_QPA_PLATFORM = "offscreen"
 
+$verificationSteps = @(
+    @{
+        Name      = "format check"
+        Command   = "python"
+        Arguments = @("-m", "ruff", "format", "--check", ".")
+    }
+    @{
+        Name      = "lint check"
+        Command   = "python"
+        Arguments = @("-m", "ruff", "check", ".")
+    }
+    @{
+        Name      = "type check"
+        Command   = "python"
+        Arguments = @("-m", "mypy")
+    }
+    @{
+        Name      = "unittest"
+        Command   = "python"
+        Arguments = @("-m", "unittest", "discover", "-s", "py_tests", "-v")
+    }
+    @{
+        Name      = "pytest"
+        Command   = "python"
+        Arguments = @("-m", "pytest", "py_tests", "-q")
+    }
+)
+
 Push-Location $projectRoot
 try {
-    Invoke-VerificationStep -Name "格式检查" -Command "ruff" -Arguments @("format", "--check", ".")
-    Invoke-VerificationStep -Name "静态检查" -Command "ruff" -Arguments @("check", ".")
-    Invoke-VerificationStep -Name "类型检查" -Command "python" -Arguments @("-m", "mypy")
-    Invoke-VerificationStep -Name "unittest 全量测试" -Command "python" -Arguments @("-m", "unittest", "discover", "-s", "py_tests", "-v")
-    Invoke-VerificationStep -Name "pytest 全量测试" -Command "python" -Arguments @("-m", "pytest", "py_tests", "-q")
+    foreach ($step in $verificationSteps) {
+        $displayCommand = "$($step.Command) $($step.Arguments -join ' ')"
+        $arguments = $step.Arguments
+
+        Write-Host ""
+        Write-Host "Starting verification: $($step.Name)"
+        Write-Host "Command: $displayCommand"
+
+        & $step.Command @arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "Verification failed: $displayCommand"
+        }
+    }
 
     Write-Host ""
-    Write-Host "本地验证全部通过。"
+    Write-Host "Local verification passed."
 }
 catch {
     Write-Error $_

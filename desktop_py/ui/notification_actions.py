@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from desktop_py.core.account_status import AUTO_PUSH_SKIP_NOTE
+from desktop_py.core.fetch_summary_service import (
+    resend_pending_notifications as resend_pending_notifications_core,
+)
+from desktop_py.core.fetch_summary_service import (
+    send_summary_with_pending_notification,
+)
 from desktop_py.ui.fetch_actions import _enabled_imported_accounts
-
-AUTO_PUSH_SKIP_NOTE = "当前登录态未自动跳入后台页，且没有可复用的历史反馈页地址，无法启动自动切换账号。"
 
 
 def auto_fetch_and_send(window: Any) -> None:
@@ -78,12 +83,14 @@ def send_summary_with_webhook(
     ]
 
     def send_job(_log: Any) -> None:
-        summary = build_summary_fn(results)
-        try:
-            send_feishu_text_fn(webhook, summary)
-        except Exception:
-            append_pending_notification_fn(build_pending_notification_fn(summary, source="飞书汇总"))
-            raise
+        send_summary_with_pending_notification(
+            webhook,
+            results,
+            build_summary_fn=build_summary_fn,
+            send_feishu_text_fn=send_feishu_text_fn,
+            build_pending_notification_fn=build_pending_notification_fn,
+            append_pending_notification_fn=append_pending_notification_fn,
+        )
 
     window._run_thread(
         send_job,
@@ -136,11 +143,13 @@ def resend_pending_notifications(
         return
 
     def resend_job(log: Any) -> int:
-        sent_count = 0
+        sent_count = resend_pending_notifications_core(
+            webhook,
+            notifications,
+            send_feishu_text_fn=send_feishu_text_fn,
+            remove_pending_notifications_fn=remove_pending_notifications_fn,
+        )
         for notification in notifications:
-            send_feishu_text_fn(webhook, notification.content)
-            remove_pending_notifications_fn([notification.id])
-            sent_count += 1
             log(f"已补发飞书消息：{notification.id}")
         return sent_count
 

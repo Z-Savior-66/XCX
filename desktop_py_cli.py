@@ -4,6 +4,12 @@ import argparse
 import json
 from collections.abc import Sequence
 
+from desktop_py.core.fetch_summary_service import (
+    resend_pending_notifications as resend_pending_notifications_core,
+)
+from desktop_py.core.fetch_summary_service import (
+    send_summary_with_pending_notification,
+)
 from desktop_py.core.fetcher import fetch_account, save_login_state, save_login_state_with_profile
 from desktop_py.core.models import AccountConfig, FetchResult
 from desktop_py.core.notifier import build_pending_notification, build_summary, send_feishu_text
@@ -79,12 +85,15 @@ def main() -> int:
         if changed:
             save_accounts(accounts)
 
-        summary = build_summary(results)
-        try:
-            send_feishu_text(settings.feishu_webhook, summary)
-        except Exception:
-            append_pending_notification(build_pending_notification(summary, source="CLI飞书汇总"))
-            raise
+        send_summary_with_pending_notification(
+            settings.feishu_webhook,
+            results,
+            build_summary_fn=build_summary,
+            send_feishu_text_fn=send_feishu_text,
+            build_pending_notification_fn=build_pending_notification,
+            append_pending_notification_fn=append_pending_notification,
+            pending_source="CLI飞书汇总",
+        )
         print("飞书消息已发送")
         if failed_accounts:
             print("以下账号抓取失败，但已完成其余账号汇总：")
@@ -97,11 +106,12 @@ def main() -> int:
         if not notifications:
             print("当前没有待补发飞书消息")
             return 0
-        sent_count = 0
-        for notification in notifications:
-            send_feishu_text(settings.feishu_webhook, notification.content)
-            remove_pending_notifications([notification.id])
-            sent_count += 1
+        sent_count = resend_pending_notifications_core(
+            settings.feishu_webhook,
+            notifications,
+            send_feishu_text_fn=send_feishu_text,
+            remove_pending_notifications_fn=remove_pending_notifications,
+        )
         print(f"飞书补发完成，已发送 {sent_count} 条")
         return 0
 

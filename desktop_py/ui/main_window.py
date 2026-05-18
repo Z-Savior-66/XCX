@@ -535,7 +535,7 @@ class MainWindow(QMainWindow):
         handle_auto_fetch_push_toggled_impl(self, checked, save_settings_fn=save_settings)
 
     def _apply_auto_fetch_push_schedule(self) -> None:
-        apply_auto_fetch_push_schedule_impl(self)
+        apply_auto_fetch_push_schedule_impl(self, save_settings_fn=save_settings)
 
     def _milliseconds_until_next_auto_fetch_push(self, now: datetime | None = None) -> int:
         return milliseconds_until_next_auto_fetch_push_impl(
@@ -550,6 +550,7 @@ class MainWindow(QMainWindow):
             self,
             min_auto_renew_interval_ms=AUTO_RENEW_INTERVAL_MIN_MS,
             max_auto_renew_interval_ms=AUTO_RENEW_INTERVAL_MAX_MS,
+            save_settings_fn=save_settings,
         )
 
     def _handle_auto_renew_timeout(self) -> None:
@@ -568,6 +569,7 @@ class MainWindow(QMainWindow):
                 )
             ),
             close_all_group_runtimes_fn=close_all_group_runtimes,
+            save_settings_fn=save_settings,
         )
 
     def _mark_auto_renew_result(self, account: AccountConfig, valid: bool) -> None:

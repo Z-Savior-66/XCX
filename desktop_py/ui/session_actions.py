@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from desktop_py.core.account_status import (
+    LOGIN_STATUS_INVALID,
+    LOGIN_STATUS_SAVED,
+    LOGIN_STATUS_VALID,
+    STATUS_CHECKING,
+)
 from desktop_py.core.models import SESSION_STATUS_STALE, SESSION_STATUS_VALID
 from desktop_py.core.session_links import propagate_account_feedback_url
 from desktop_py.ui.common_actions import entry_account
@@ -13,7 +19,7 @@ def auto_validate_entry_account(window: Any, *, os_module: Any, validate_account
     account = entry_account(window)
     if account is None:
         return
-    account.last_status = "检测中"
+    account.last_status = STATUS_CHECKING
     account.last_note = ""
     window.refresh_table()
     window._run_thread(
@@ -85,7 +91,7 @@ def mark_login(
     window: Any, account: Any, *, datetime_cls: Any, save_accounts_fn: Any, close_all_group_runtimes_fn: Any = None
 ) -> None:
     account.last_login_at = datetime_cls.now().strftime("%Y-%m-%d %H:%M:%S")
-    account.last_status = "已保存登录态"
+    account.last_status = LOGIN_STATUS_SAVED
     account.last_note = "可继续导入账号或直接抓取"
     account.session_status = SESSION_STATUS_VALID
     account.last_session_error = ""
@@ -147,7 +153,7 @@ def renew_selected(window: Any, *, renew_account_state_fn: Any, close_all_group_
 
 
 def mark_validation(window: Any, account: Any, valid: bool, *, save_accounts_fn: Any) -> None:
-    account.last_status = "登录有效" if valid else "登录失效"
+    account.last_status = LOGIN_STATUS_VALID if valid else LOGIN_STATUS_INVALID
     if valid:
         account.last_note = (
             "可直接抓取" if account.session_status != SESSION_STATUS_STALE else "登录态接近失效，建议优先续期"

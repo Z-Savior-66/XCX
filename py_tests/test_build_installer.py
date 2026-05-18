@@ -1,6 +1,8 @@
 import unittest
 from pathlib import Path
 
+from desktop_py.version import APP_VERSION, __version__
+
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "build_installer.ps1"
 INSTALLER_ISS_PATH = Path(__file__).resolve().parents[1] / "scripts" / "installer_clean.iss"
 
@@ -43,13 +45,20 @@ class BuildInstallerScriptTestCase(unittest.TestCase):
     def test_build_script_passes_release_metadata_to_inno(self):
         content = SCRIPT_PATH.read_text(encoding="utf-8")
 
-        self.assertIn('$appVersion = "1.0.0"', content)
+        self.assertIn("function Resolve-AppVersion", content)
+        self.assertIn("from desktop_py.version import APP_VERSION", content)
+        self.assertIn("$appVersion = Resolve-AppVersion -ProjectRoot $projectRoot", content)
+        self.assertNotIn('$appVersion = "1.0.0"', content)
         self.assertIn('$appPublisher = "本地构建"', content)
         self.assertIn('"/DMyAppVersion=$appVersion"', content)
         self.assertIn('"/DMyAppPublisher=$appPublisher"', content)
         self.assertIn('"/DMyAppIconPath=$appIconPath"', content)
         self.assertIn("--icon $appIconPath", content)
         self.assertIn('--add-data "$appAssetsPath;assets"', content)
+
+    def test_version_module_exposes_single_app_version(self):
+        self.assertEqual(APP_VERSION, "1.0.0")
+        self.assertEqual(__version__, APP_VERSION)
 
     def test_installer_preserves_user_data_directories(self):
         content = INSTALLER_ISS_PATH.read_text(encoding="utf-8")

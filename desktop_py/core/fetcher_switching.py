@@ -9,6 +9,7 @@ from playwright.sync_api import Locator, Page
 
 from desktop_py.core.fetcher_support import (
     FetchError,
+    FetchErrorCode,
     _log,
     analyze_storage_state,
     ensure_account_session_available,
@@ -212,7 +213,18 @@ def open_switch_account_dialog_impl(
 
     current_url = page.url
     actual_name = extract_current_account_name_fn(page) or "未知"
-    raise FetchError(f"当前页面不存在切换账号入口。当前地址：{current_url}，当前账号：{actual_name}")
+    raise FetchError(
+        f"当前页面不存在切换账号入口。当前地址：{current_url}，当前账号：{actual_name}",
+        code=FetchErrorCode.SWITCH_ENTRY_MISSING,
+        evidence=[
+            {
+                "kind": "page",
+                "label": "切换账号入口",
+                "summary": "打开切换账号弹窗时未找到入口。",
+                "metadata": {"page_url": current_url, "actual_account_name": actual_name},
+            }
+        ],
+    )
 
 
 def extract_current_account_name_impl(page: Page, *, safe_page_content_fn: Callable[..., str]) -> str:
@@ -298,12 +310,34 @@ def switch_to_account_impl(
     )
     if target.count() == 0:
         names = "、".join(str(item["name"]) for item in account_meta if item["name"])
-        raise FetchError(f"切换账号列表中未找到“{account_name}”。当前可见账号：{names}")
+        raise FetchError(
+            f"切换账号列表中未找到“{account_name}”。当前可见账号：{names}",
+            code=FetchErrorCode.SWITCH_ACCOUNT_NOT_FOUND,
+            evidence=[
+                {
+                    "kind": "page",
+                    "label": "切换账号列表",
+                    "summary": "目标账号不在当前可见账号列表中。",
+                    "metadata": {"target_account_name": account_name, "visible_account_names": names},
+                }
+            ],
+        )
 
     target.first.evaluate("e => e.click()")
     actual_name = wait_for_current_account_name_fn(page, account_name, timeout_ms=5000)
     if actual_name and actual_name != account_name:
-        raise FetchError(f"已点击切换账号，但当前实际账号为“{actual_name}”，不是目标账号“{account_name}”。")
+        raise FetchError(
+            f"已点击切换账号，但当前实际账号为“{actual_name}”，不是目标账号“{account_name}”。",
+            code=FetchErrorCode.SWITCH_ACCOUNT_MISMATCH,
+            evidence=[
+                {
+                    "kind": "page",
+                    "label": "切换账号结果",
+                    "summary": "点击切换后实际账号与目标账号不一致。",
+                    "metadata": {"target_account_name": account_name, "actual_account_name": actual_name},
+                }
+            ],
+        )
     wait_for_account_switch_stable_fn(page, account_name, home_url=home_url)
     log_fn(logger, f"已切换到账号：{account_name}")
 
@@ -335,7 +369,16 @@ def wait_for_account_switch_stable_impl(
 
     if latest_name and latest_name != expected_account_name:
         raise FetchError(
-            f"切换账号后页面稳定校验失败，当前实际账号为“{latest_name}”，不是目标账号“{expected_account_name}”。"
+            f"切换账号后页面稳定校验失败，当前实际账号为“{latest_name}”，不是目标账号“{expected_account_name}”。",
+            code=FetchErrorCode.SWITCH_ACCOUNT_MISMATCH,
+            evidence=[
+                {
+                    "kind": "page",
+                    "label": "账号稳定校验",
+                    "summary": "页面稳定校验期间实际账号与目标账号不一致。",
+                    "metadata": {"target_account_name": expected_account_name, "actual_account_name": latest_name},
+                }
+            ],
         )
     return latest_name
 
@@ -403,7 +446,18 @@ def wait_for_switch_account_items_impl(
         wait_or_cancel_fn(page, 1200, is_cancelled)
         open_switch_account_dialog_fn(page)
         locator = page.locator(selector)
-    raise FetchError(f"未读取到切换账号列表，已重试 {retry_limit} 次。")
+    raise FetchError(
+        f"未读取到切换账号列表，已重试 {retry_limit} 次。",
+        code=FetchErrorCode.SWITCH_ACCOUNT_LIST_EMPTY,
+        evidence=[
+            {
+                "kind": "page",
+                "label": "切换账号列表",
+                "summary": "多次重试后仍未读取到账号列表。",
+                "metadata": {"selector": selector, "retry_limit": retry_limit},
+            }
+        ],
+    )
 
 
 def fetch_switchable_accounts_impl(

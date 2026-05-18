@@ -39,6 +39,23 @@ function Assert-PyInstallerAvailable {
     }
 }
 
+function Resolve-AppVersion {
+    param(
+        [string]$ProjectRoot
+    )
+
+    $escapedProjectRoot = $ProjectRoot.Replace("'", "''")
+    $version = & python -c "import sys; sys.path.insert(0, r'$escapedProjectRoot'); from desktop_py.version import APP_VERSION; print(APP_VERSION)"
+    if ($LASTEXITCODE -ne 0) {
+        throw "读取应用版本失败，请检查 desktop_py\\version.py。"
+    }
+    $normalizedVersion = ($version | Select-Object -First 1).Trim()
+    if (-not $normalizedVersion) {
+        throw "应用版本不能为空，请检查 desktop_py\\version.py。"
+    }
+    return $normalizedVersion
+}
+
 function Invoke-LocalVerification {
     param(
         [string]$ProjectRoot
@@ -71,7 +88,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $distRoot = Join-Path $projectRoot "dist"
 $installerSourceRoot = Join-Path $projectRoot "build\installer-source"
 $appName = "小程序工具"
-$appVersion = "1.0.0"
+$appVersion = Resolve-AppVersion -ProjectRoot $projectRoot
 $appPublisher = "本地构建"
 $installerSourceDir = Join-Path $installerSourceRoot $appName
 $installerExeName = "$appName.exe"

@@ -17,7 +17,10 @@ def initialize_window_state(
     ensure_runtime_dirs_fn()
     window.accounts = load_accounts_fn()
     if normalize_group_feedback_urls(window.accounts):
-        save_accounts_fn(window.accounts)
+        try:
+            save_accounts_fn(window.accounts)
+        except PermissionError:
+            pass
     window.settings = load_settings_fn()
     reset_current_main_account_name_fn()
 

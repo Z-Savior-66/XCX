@@ -34,6 +34,12 @@ def save_current_settings(
             auto_fetch_push_enabled=window.auto_fetch_push_switch.isChecked()
             if window.auto_fetch_push_switch is not None
             else False,
+            diagnostic_retention_days=window.settings.diagnostic_retention_days,
+            next_auto_renew_at=window.settings.next_auto_renew_at,
+            next_auto_fetch_push_at=window.settings.next_auto_fetch_push_at,
+            auto_renew_schedule_reason=window.settings.auto_renew_schedule_reason,
+            auto_fetch_push_schedule_reason=window.settings.auto_fetch_push_schedule_reason,
+            schedule_reason=window.settings.schedule_reason,
         )
         save_settings_fn(window.settings)
     except ValueError as exc:

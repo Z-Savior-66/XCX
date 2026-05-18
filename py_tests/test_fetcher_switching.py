@@ -1,3 +1,4 @@
+from desktop_py.core.fetcher_support import FetchErrorCode
 from py_tests.fetcher_test_support import (
     AccountConfig,
     FakeLocator,
@@ -155,8 +156,10 @@ class FetcherSwitchingTestCase(FetcherTestBase):
         )
 
         with patch("desktop_py.core.fetcher.open_switch_account_dialog"):
-            with self.assertRaisesRegex(Exception, "未读取到切换账号列表，已重试 3 次。"):
+            with self.assertRaisesRegex(Exception, "未读取到切换账号列表，已重试 3 次。") as raised:
                 wait_for_switch_account_items(page, ".switch_account_dialog .account_item")
+
+        self.assertEqual(raised.exception.code, FetchErrorCode.SWITCH_ACCOUNT_LIST_EMPTY)
 
     def test_wait_for_switch_account_items_waits_before_first_retry_log(self):
         account_locator = FakeLocator(counts=[0, 0, 0, 0, 0, 0, 0, 0, 1])
@@ -224,7 +227,7 @@ class FetcherSwitchingTestCase(FetcherTestBase):
         page = FakePage()
         page.url = "https://mp.weixin.qq.com/wxamp/index/index?token=1"
 
-        with self.assertRaisesRegex(Exception, "不是目标账号"):
+        with self.assertRaisesRegex(Exception, "不是目标账号") as raised:
             wait_for_account_switch_stable(
                 page,
                 "目标账号",
@@ -234,6 +237,8 @@ class FetcherSwitchingTestCase(FetcherTestBase):
                 stable_rounds=2,
                 interval_ms=1,
             )
+
+        self.assertEqual(raised.exception.code, FetchErrorCode.SWITCH_ACCOUNT_MISMATCH)
 
     def test_prepare_switch_account_page_recovers_login_timeout_screen(self):
         class TimeoutPage:

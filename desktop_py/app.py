@@ -8,6 +8,7 @@ from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QProgressDialog, QStyle, QSystemTrayIcon
 
 from desktop_py.core.browser_runtime import install_playwright_browsers, playwright_browsers_ready
+from desktop_py.core.store import acquire_app_instance_lock
 from desktop_py.ui.main_window import MainWindow
 from desktop_py.ui.message_dialog import MessageDialog
 from desktop_py.ui.workers import TaskThread
@@ -78,31 +79,39 @@ def main() -> int:
     app_icon = load_app_icon()
     if not app_icon.isNull():
         app.setWindowIcon(app_icon)
-    if not ensure_browser_runtime(app):
+    try:
+        instance_lock = acquire_app_instance_lock()
+    except RuntimeError as exc:
+        MessageDialog.show_warning(None, "程序已在运行", str(exc))
         return 1
-    window = MainWindow()
-    if not app_icon.isNull():
-        window.setWindowIcon(app_icon)
-    tray_icon = QSystemTrayIcon(window)
-    tray_icon.setIcon(
-        app_icon if not app_icon.isNull() else app.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
-    )
-    tray_icon.setToolTip("小程序工具")
+    try:
+        if not ensure_browser_runtime(app):
+            return 1
+        window = MainWindow()
+        if not app_icon.isNull():
+            window.setWindowIcon(app_icon)
+        tray_icon = QSystemTrayIcon(window)
+        tray_icon.setIcon(
+            app_icon if not app_icon.isNull() else app.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+        )
+        tray_icon.setToolTip("小程序工具")
 
-    tray_menu = QMenu()
-    show_action = QAction("打开窗口", tray_menu)
-    show_action.triggered.connect(window.restore_from_tray)
-    exit_action = QAction("退出", tray_menu)
-    exit_action.triggered.connect(window.request_exit)
-    tray_menu.addAction(show_action)
-    tray_menu.addSeparator()
-    tray_menu.addAction(exit_action)
+        tray_menu = QMenu()
+        show_action = QAction("打开窗口", tray_menu)
+        show_action.triggered.connect(window.restore_from_tray)
+        exit_action = QAction("退出", tray_menu)
+        exit_action.triggered.connect(window.request_exit)
+        tray_menu.addAction(show_action)
+        tray_menu.addSeparator()
+        tray_menu.addAction(exit_action)
 
-    tray_icon.setContextMenu(tray_menu)
-    tray_icon.activated.connect(
-        lambda reason: window.restore_from_tray() if reason == QSystemTrayIcon.ActivationReason.Trigger else None
-    )
-    tray_icon.show()
-    window.tray_icon = tray_icon
-    window.show()
-    return app.exec()
+        tray_icon.setContextMenu(tray_menu)
+        tray_icon.activated.connect(
+            lambda reason: window.restore_from_tray() if reason == QSystemTrayIcon.ActivationReason.Trigger else None
+        )
+        tray_icon.show()
+        window.tray_icon = tray_icon
+        window.show()
+        return app.exec()
+    finally:
+        instance_lock.release()

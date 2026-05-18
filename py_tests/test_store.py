@@ -1,3 +1,4 @@
+import json
 import os
 import time
 import unittest
@@ -5,14 +6,16 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from desktop_py.core.models import AccountConfig, AppSettings, PendingNotification
+from desktop_py.core.models import CONFIG_SCHEMA_VERSION, AccountConfig, AppSettings, PendingNotification
 from desktop_py.core.store import (
     SHARED_BROWSER_PROFILE_DIR_NAME,
     _write_text_atomic,
     account_output_file,
     account_state_path,
+    acquire_app_instance_lock,
     append_pending_notification,
     cleanup_account_diagnostics,
+    diagnostic_index_file,
     load_accounts,
     load_pending_notifications,
     load_settings,
@@ -25,6 +28,7 @@ from desktop_py.core.store import (
     validate_shared_browser_profile_dir,
     write_account_output_json,
     write_account_output_text,
+    write_diagnostic_index_json,
 )
 
 
@@ -36,6 +40,7 @@ class StoreTestCase(unittest.TestCase):
     def test_account_dict(self):
         account = AccountConfig(name="测试账号", state_path="storage/test.json")
         self.assertEqual(account.to_dict()["name"], "测试账号")
+        self.assertEqual(account.to_dict()["schema_version"], CONFIG_SCHEMA_VERSION)
         self.assertTrue(account.to_dict()["is_entry_account"])
 
     def test_load_settings_defaults_auto_fetch_push_when_missing(self):
@@ -51,6 +56,12 @@ class StoreTestCase(unittest.TestCase):
 
         self.assertFalse(settings.auto_fetch_push_enabled)
         self.assertEqual(settings.diagnostic_retention_days, 14)
+        self.assertEqual(settings.next_auto_renew_at, "")
+        self.assertEqual(settings.next_auto_fetch_push_at, "")
+        self.assertEqual(settings.auto_renew_schedule_reason, "")
+        self.assertEqual(settings.auto_fetch_push_schedule_reason, "")
+        self.assertEqual(settings.schedule_reason, "")
+        self.assertEqual(settings.schema_version, CONFIG_SCHEMA_VERSION)
 
     def test_load_settings_supports_utf8_bom(self):
         with TemporaryDirectory() as temp_dir:
@@ -90,6 +101,23 @@ class StoreTestCase(unittest.TestCase):
                 accounts = load_accounts()
 
         self.assertEqual(accounts[0].name, "测试账号")
+        self.assertEqual(accounts[0].schema_version, CONFIG_SCHEMA_VERSION)
+
+    def test_load_pending_notifications_defaults_schema_version_when_missing(self):
+        with TemporaryDirectory() as temp_dir:
+            pending_path = Path(temp_dir) / "pending_notifications.json"
+            pending_path.write_text(
+                '[{"id":"abc123","content":"待补发内容","created_at":"2026-05-18 17:00:00"}]\n',
+                encoding="utf-8",
+            )
+
+            with (
+                patch("desktop_py.core.store.PENDING_NOTIFICATIONS_FILE", pending_path),
+                patch("desktop_py.core.store.ensure_runtime_dirs"),
+            ):
+                notifications = load_pending_notifications()
+
+        self.assertEqual(notifications[0].schema_version, CONFIG_SCHEMA_VERSION)
 
     def test_load_accounts_ignores_unknown_fields(self):
         with TemporaryDirectory() as temp_dir:
@@ -120,6 +148,46 @@ class StoreTestCase(unittest.TestCase):
                 with self.assertRaises(TypeError):
                     load_accounts()
 
+    def test_load_accounts_recovers_corrupt_json_with_backup(self):
+        with TemporaryDirectory() as temp_dir:
+            accounts_path = Path(temp_dir) / "accounts.json"
+            accounts_path.write_text("{", encoding="utf-8")
+
+            with (
+                patch("desktop_py.core.store.ACCOUNTS_FILE", accounts_path),
+                patch("desktop_py.core.store.ensure_runtime_dirs"),
+            ):
+                accounts = load_accounts()
+
+            backups = list(Path(temp_dir).glob("accounts.json.*.corrupt"))
+            backup_content = backups[0].read_text(encoding="utf-8")
+            restored_content = accounts_path.read_text(encoding="utf-8")
+
+        self.assertEqual(accounts, [])
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backup_content, "{")
+        self.assertEqual(restored_content, "[]\n")
+
+    def test_load_accounts_recovers_empty_json_file_with_backup(self):
+        with TemporaryDirectory() as temp_dir:
+            accounts_path = Path(temp_dir) / "accounts.json"
+            accounts_path.write_text("", encoding="utf-8")
+
+            with (
+                patch("desktop_py.core.store.ACCOUNTS_FILE", accounts_path),
+                patch("desktop_py.core.store.ensure_runtime_dirs"),
+            ):
+                accounts = load_accounts()
+
+            backups = list(Path(temp_dir).glob("accounts.json.*.corrupt"))
+            backup_content = backups[0].read_text(encoding="utf-8")
+            restored_content = accounts_path.read_text(encoding="utf-8")
+
+        self.assertEqual(accounts, [])
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backup_content, "")
+        self.assertEqual(restored_content, "[]\n")
+
     def test_save_settings_persists_auto_fetch_push_enabled(self):
         with TemporaryDirectory() as temp_dir:
             settings_path = Path(temp_dir) / "settings.json"
@@ -137,6 +205,51 @@ class StoreTestCase(unittest.TestCase):
             content = settings_path.read_text(encoding="utf-8")
 
         self.assertIn('"auto_fetch_push_enabled": true', content)
+
+    def test_save_settings_persists_schedule_state(self):
+        with TemporaryDirectory() as temp_dir:
+            settings_path = Path(temp_dir) / "settings.json"
+            settings = AppSettings(
+                next_auto_renew_at="2026-05-18 21:00:00",
+                next_auto_fetch_push_at="2026-05-19 09:00:00",
+                auto_renew_schedule_reason="失败退避",
+                auto_fetch_push_schedule_reason="每天 09:00 自动执行",
+                schedule_reason="失败退避",
+            )
+
+            with (
+                patch("desktop_py.core.store.SETTINGS_FILE", settings_path),
+                patch("desktop_py.core.store.ensure_runtime_dirs"),
+            ):
+                save_settings(settings)
+                loaded = load_settings()
+
+        self.assertEqual(loaded.next_auto_renew_at, "2026-05-18 21:00:00")
+        self.assertEqual(loaded.next_auto_fetch_push_at, "2026-05-19 09:00:00")
+        self.assertEqual(loaded.auto_renew_schedule_reason, "失败退避")
+        self.assertEqual(loaded.auto_fetch_push_schedule_reason, "每天 09:00 自动执行")
+        self.assertEqual(loaded.schedule_reason, "失败退避")
+
+    def test_load_settings_recovers_corrupt_json_with_default_settings(self):
+        with TemporaryDirectory() as temp_dir:
+            settings_path = Path(temp_dir) / "settings.json"
+            settings_path.write_text("{", encoding="utf-8")
+
+            with (
+                patch("desktop_py.core.store.SETTINGS_FILE", settings_path),
+                patch("desktop_py.core.store.ensure_runtime_dirs"),
+            ):
+                settings = load_settings()
+
+            backups = list(Path(temp_dir).glob("settings.json.*.corrupt"))
+            restored_content = settings_path.read_text(encoding="utf-8")
+            backup_content = backups[0].read_text(encoding="utf-8")
+
+        self.assertEqual(settings, AppSettings())
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backup_content, "{")
+        self.assertIn('"schema_version": 1', restored_content)
+        self.assertIn('"login_wait_seconds": 120', restored_content)
 
     def test_persistent_writes_use_atomic_writer(self):
         calls: list[tuple[Path, str]] = []
@@ -213,6 +326,26 @@ class StoreTestCase(unittest.TestCase):
         self.assertFalse(second_result)
         self.assertEqual(loaded, [notification])
 
+    def test_load_pending_notifications_recovers_corrupt_json_with_backup(self):
+        with TemporaryDirectory() as temp_dir:
+            pending_path = Path(temp_dir) / "pending_notifications.json"
+            pending_path.write_text("{", encoding="utf-8")
+
+            with (
+                patch("desktop_py.core.store.PENDING_NOTIFICATIONS_FILE", pending_path),
+                patch("desktop_py.core.store.ensure_runtime_dirs"),
+            ):
+                notifications = load_pending_notifications()
+
+            backups = list(Path(temp_dir).glob("pending_notifications.json.*.corrupt"))
+            backup_content = backups[0].read_text(encoding="utf-8")
+            restored_content = pending_path.read_text(encoding="utf-8")
+
+        self.assertEqual(notifications, [])
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backup_content, "{")
+        self.assertEqual(restored_content, "[]\n")
+
     def test_atomic_write_keeps_original_file_when_replace_fails(self):
         with TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "settings.json"
@@ -224,6 +357,191 @@ class StoreTestCase(unittest.TestCase):
 
             self.assertEqual(target.read_text(encoding="utf-8"), '{"old": true}\n')
             self.assertEqual(list(Path(temp_dir).glob("*.tmp")), [])
+
+    def test_atomic_write_skips_replace_when_content_is_unchanged(self):
+        with TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "settings.json"
+            target.write_text('{"same": true}\n', encoding="utf-8")
+
+            with patch("desktop_py.core.store.Path.replace") as mock_replace:
+                _write_text_atomic(target, '{"same": true}\n')
+
+            mock_replace.assert_not_called()
+            self.assertEqual(target.read_text(encoding="utf-8"), '{"same": true}\n')
+            self.assertEqual(list(Path(temp_dir).glob("*.tmp")), [])
+
+    def test_atomic_write_handles_file_disappearing_after_exists_check(self):
+        with TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "settings.json"
+
+            with patch("desktop_py.core.store.Path.exists", return_value=True):
+                _write_text_atomic(target, '{"new": true}\n')
+
+            self.assertEqual(target.read_text(encoding="utf-8"), '{"new": true}\n')
+
+    def test_atomic_write_retries_permission_error_and_writes_file(self):
+        with TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "settings.json"
+            target.write_text('{"old": true}\n', encoding="utf-8")
+            original_replace = Path.replace
+            replace_calls = 0
+
+            def flaky_replace(current_path: Path, next_path: Path) -> Path:
+                nonlocal replace_calls
+                replace_calls += 1
+                if replace_calls == 1:
+                    raise PermissionError("replace denied")
+                return original_replace(current_path, next_path)
+
+            with (
+                patch("desktop_py.core.store.Path.replace", autospec=True, side_effect=flaky_replace),
+                patch("desktop_py.core.store.time.sleep"),
+            ):
+                _write_text_atomic(target, '{"new": true}\n')
+
+            self.assertEqual(replace_calls, 2)
+            self.assertEqual(target.read_text(encoding="utf-8"), '{"new": true}\n')
+            self.assertEqual(list(Path(temp_dir).glob("*.tmp")), [])
+
+    def test_acquire_app_instance_lock_creates_lock_file(self):
+        with TemporaryDirectory() as temp_dir:
+            lock_path = Path(temp_dir) / "app.lock"
+
+            with patch("desktop_py.core.store.ensure_runtime_dirs"):
+                lock = acquire_app_instance_lock(
+                    lock_path=lock_path,
+                    process_id_fn=lambda: 4321,
+                    now_fn=lambda: 1234.5,
+                )
+
+            payload = json.loads(lock_path.read_text(encoding="utf-8"))
+            lock_file_exists = lock_path.is_file()
+
+        self.assertEqual(payload["pid"], 4321)
+        self.assertEqual(payload["created_at"], 1234.5)
+        self.assertEqual(lock.pid, 4321)
+        self.assertEqual(lock.token, payload["token"])
+        self.assertTrue(lock_file_exists)
+
+    def test_acquire_app_instance_lock_rejects_active_existing_lock(self):
+        with TemporaryDirectory() as temp_dir:
+            lock_path = Path(temp_dir) / "app.lock"
+            lock_path.write_text(
+                json.dumps({"pid": 4321, "token": "old-token", "created_at": 1000.0}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            with patch("desktop_py.core.store.ensure_runtime_dirs"):
+                with self.assertRaisesRegex(RuntimeError, "已在运行"):
+                    acquire_app_instance_lock(
+                        lock_path=lock_path,
+                        stale_seconds=3600,
+                        process_id_fn=lambda: 9876,
+                        process_running_fn=lambda pid: pid == 4321,
+                        now_fn=lambda: 1200.0,
+                    )
+
+            self.assertEqual(
+                json.loads(lock_path.read_text(encoding="utf-8")),
+                {"pid": 4321, "token": "old-token", "created_at": 1000.0},
+            )
+
+    def test_acquire_app_instance_lock_rejects_expired_but_running_lock(self):
+        with TemporaryDirectory() as temp_dir:
+            lock_path = Path(temp_dir) / "app.lock"
+            lock_path.write_text(
+                json.dumps({"pid": 4321, "token": "old-token", "created_at": 1000.0}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            with patch("desktop_py.core.store.ensure_runtime_dirs"):
+                with self.assertRaisesRegex(RuntimeError, "已在运行"):
+                    acquire_app_instance_lock(
+                        lock_path=lock_path,
+                        stale_seconds=60,
+                        process_id_fn=lambda: 9876,
+                        process_running_fn=lambda _pid: True,
+                        now_fn=lambda: 1200.0,
+                    )
+
+            self.assertEqual(
+                json.loads(lock_path.read_text(encoding="utf-8")),
+                {"pid": 4321, "token": "old-token", "created_at": 1000.0},
+            )
+
+    def test_acquire_app_instance_lock_rebuilds_dead_process_lock(self):
+        with TemporaryDirectory() as temp_dir:
+            lock_path = Path(temp_dir) / "app.lock"
+            lock_path.write_text(
+                json.dumps({"pid": 4321, "token": "old-token", "created_at": 1000.0}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            with patch("desktop_py.core.store.ensure_runtime_dirs"):
+                lock = acquire_app_instance_lock(
+                    lock_path=lock_path,
+                    stale_seconds=3600,
+                    process_id_fn=lambda: 9876,
+                    process_running_fn=lambda _pid: False,
+                    now_fn=lambda: 1200.0,
+                )
+
+            payload = json.loads(lock_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["pid"], 9876)
+        self.assertEqual(payload["token"], lock.token)
+        self.assertEqual(lock.pid, 9876)
+
+    def test_acquire_app_instance_lock_rebuilds_expired_dead_process_lock(self):
+        with TemporaryDirectory() as temp_dir:
+            lock_path = Path(temp_dir) / "app.lock"
+            lock_path.write_text(
+                json.dumps({"pid": 4321, "token": "old-token", "created_at": 1000.0}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            with patch("desktop_py.core.store.ensure_runtime_dirs"):
+                lock = acquire_app_instance_lock(
+                    lock_path=lock_path,
+                    stale_seconds=60,
+                    process_id_fn=lambda: 9876,
+                    process_running_fn=lambda _pid: False,
+                    now_fn=lambda: 1200.0,
+                )
+
+            payload = json.loads(lock_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(payload["pid"], 9876)
+        self.assertEqual(payload["token"], lock.token)
+        self.assertEqual(lock.pid, 9876)
+
+    def test_app_instance_lock_release_only_removes_matching_lock(self):
+        with TemporaryDirectory() as temp_dir:
+            lock_path = Path(temp_dir) / "app.lock"
+
+            with patch("desktop_py.core.store.ensure_runtime_dirs"):
+                lock = acquire_app_instance_lock(
+                    lock_path=lock_path,
+                    process_id_fn=lambda: 2468,
+                    now_fn=lambda: 100.0,
+                )
+
+            lock_path.write_text(
+                json.dumps({"pid": 1357, "token": lock.token, "created_at": 100.0}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            lock.release()
+            still_exists_after_mismatch = lock_path.exists()
+
+            lock_path.write_text(
+                json.dumps({"pid": 2468, "token": lock.token, "created_at": 100.0}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            lock.release()
+            removed_after_match = not lock_path.exists()
+
+        self.assertTrue(still_exists_after_mismatch)
+        self.assertTrue(removed_after_match)
 
     def test_runtime_root_uses_executable_directory_when_frozen(self):
         with (
@@ -328,6 +646,20 @@ class StoreTestCase(unittest.TestCase):
 
                 target = output_root / "测试账号" / "payload.json"
                 self.assertIn('"ok": true', target.read_text(encoding="utf-8"))
+
+    def test_write_diagnostic_index_json_creates_root_index_file(self):
+        with TemporaryDirectory() as temp_dir:
+            output_root = Path(temp_dir) / "output"
+            target = output_root / "diagnostic_index.json"
+            with (
+                patch("desktop_py.core.store.PY_OUTPUT_DIR", output_root),
+                patch("desktop_py.core.store.DIAGNOSTIC_INDEX_FILE", target),
+            ):
+                written_path = write_diagnostic_index_json({"run_id": "batch-1", "accounts": []})
+
+                self.assertEqual(diagnostic_index_file(), target)
+                self.assertEqual(written_path, target)
+                self.assertIn('"run_id": "batch-1"', target.read_text(encoding="utf-8"))
 
     def test_cleanup_account_diagnostics_only_removes_old_diagnostic_files(self):
         with TemporaryDirectory() as temp_dir:

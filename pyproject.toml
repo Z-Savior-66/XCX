@@ -29,6 +29,7 @@ python_version = "3.14"
 files = [
   "desktop_py/core/store.py",
   "desktop_py/core/browser_runtime.py",
+  "desktop_py/core/account_status.py",
   "desktop_py/core/notifier.py",
   "desktop_py/core/models.py",
   "desktop_py/core/parser.py",
@@ -48,6 +49,7 @@ files = [
   "desktop_py/core/session_persistence.py",
   "desktop_py/core/session_probe.py",
   "desktop_py/core/notification_page_strategy.py",
+  "desktop_py/core/transaction_complaint_strategy.py",
   "desktop_py/ui/account_actions.py",
   "desktop_py/ui/common_actions.py",
   "desktop_py/ui/fetch_actions.py",

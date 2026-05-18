@@ -212,7 +212,36 @@ class UiFetchTestCase(UiTestBase):
         self.assertEqual(window.table.item(1, 1).text(), "2026-04-18 10:30:00")
         self.assertEqual(window.table.item(1, 2).text(), "抓取成功")
         self.assertEqual(window.table.item(1, 3).text(), "完成")
-        self.assertIn("保存抓取结果失败", window.log_edit.toPlainText())
+        log_text = window.log_edit.toPlainText()
+        self.assertIn("账号 导入账号A 抓取成功。", log_text)
+        self.assertIn("抓取已完成，但账号状态暂未写入 data/accounts.json：磁盘写入失败", log_text)
+        self.assertNotIn("保存抓取结果失败", log_text)
+
+    def test_mark_batch_results_reports_account_state_save_failure_without_fetch_failure(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window.accounts = [
+            AccountConfig(name="主账号", state_path="storage/shared.json", is_entry_account=True),
+            AccountConfig(name="导入账号A", state_path="storage/shared.json", is_entry_account=False),
+        ]
+
+        with patch("desktop_py.ui.main_window.save_accounts", side_effect=PermissionError("拒绝访问")):
+            window._mark_batch_results(
+                [
+                    FetchResult(
+                        account_name="导入账号A",
+                        ok=True,
+                        deadline_text="",
+                        note="当前账号无待处理申请。",
+                    )
+                ]
+            )
+
+        log_text = window.log_edit.toPlainText()
+        self.assertEqual(window.table.item(1, 2).text(), "抓取成功")
+        self.assertIn("抓取已完成，但账号状态暂未写入 data/accounts.json：拒绝访问", log_text)
+        self.assertIn("批量抓取已完成。", log_text)
+        self.assertNotIn("保存批量抓取结果失败", log_text)
 
     def test_mark_fetch_progress_hides_diagnostic_manifest_path(self):
         window = MainWindow()

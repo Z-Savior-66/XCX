@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from py_tests.fetcher_test_support import (
     AccountConfig,
     FakeFrame,
@@ -864,6 +866,71 @@ class FetcherPageStrategyTestCase(FetcherTestBase):
             "2026-04-27 08:37:32",
         )
         self.assertEqual(context.storage_state_calls, [("storage\\a.json", True)])
+
+    def test_resolve_frame_locator_error_has_code_and_html_evidence(self):
+        from desktop_py.core.fetcher_page_strategy import resolve_frame_locator
+        from desktop_py.core.fetcher_support import FetchError, FetchErrorCode
+
+        page = FakePage()
+        page.url = "https://mp.weixin.qq.com/"
+
+        with (
+            TemporaryDirectory() as temp_dir,
+            patch("desktop_py.core.fetcher_page_strategy.write_account_output_text") as write_text,
+        ):
+            output_dir = Path(temp_dir) / "账号A"
+            with self.assertRaises(FetchError) as raised:
+                resolve_frame_locator(
+                    page,
+                    output_dir=output_dir,
+                    business_iframe_selector_fn=lambda _page: "",
+                    safe_page_content_fn=lambda _page: "<html>无 iframe</html>",
+                )
+
+        self.assertEqual(raised.exception.code, FetchErrorCode.BUSINESS_IFRAME_MISSING)
+        self.assertEqual(raised.exception.evidence[0]["path"], str(output_dir / "page.html"))
+        write_text.assert_called_with("账号A", "page.html", "<html>无 iframe</html>")
+
+    def test_build_detail_result_error_has_deadline_code_and_evidence(self):
+        from desktop_py.core.fetcher_page_strategy import build_detail_result
+        from desktop_py.core.fetcher_support import FetchError, FetchErrorCode
+
+        class EmptyActionLocator:
+            def count(self):
+                return 0
+
+        class FrameLocator:
+            def get_by_text(self, text, exact=False):
+                return EmptyActionLocator()
+
+        class FakeContext:
+            def storage_state(self, path=None, indexed_db=False):
+                raise AssertionError("提取失败时不应保存登录态")
+
+        with (
+            TemporaryDirectory() as temp_dir,
+            patch("desktop_py.core.fetcher_page_strategy.write_fetch_artifacts") as write_artifacts,
+        ):
+            output_dir = Path(temp_dir)
+            with self.assertRaises(FetchError) as raised:
+                build_detail_result(
+                    page=object(),
+                    context=FakeContext(),
+                    account=AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False),
+                    output_dir=output_dir,
+                    frame_locator=FrameLocator(),
+                    captures=[],
+                    feedback_url="https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?token=current",
+                    profile_dir="",
+                    logger=None,
+                    safe_page_content_fn=lambda _page: "<html>详情页</html>",
+                    extract_current_account_name_fn=lambda _page: "账号A",
+                    confirm_detail_deadline_fn=lambda **_kwargs: ("", "无截止时间", "<div>无截止时间</div>"),
+                )
+
+        self.assertEqual(raised.exception.code, FetchErrorCode.DEADLINE_MISSING)
+        self.assertEqual(raised.exception.evidence[1]["path"], str(output_dir / "iframe.txt"))
+        write_artifacts.assert_called()
 
     def test_build_detail_result_prefers_action_response_contract_over_dom_text(self):
         from desktop_py.core.fetcher_page_strategy import (

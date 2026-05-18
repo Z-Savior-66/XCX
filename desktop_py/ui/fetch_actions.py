@@ -5,6 +5,10 @@ from typing import Any
 FETCH_MANIFEST_NAME = "fetch_manifest.json"
 
 
+def account_state_save_failure_message(exc: Exception) -> str:
+    return f"抓取已完成，但账号状态暂未写入 data/accounts.json：{exc}"
+
+
 def fetch_selected(window: Any, *, fetch_account_fn: Any) -> None:
     account = window.selected_account()
     if not account:
@@ -92,7 +96,7 @@ def mark_fetch_result(
     try:
         save_accounts_fn(window.accounts)
     except Exception as exc:
-        window.append_log(f"保存抓取结果失败：{exc}")
+        window.append_log(account_state_save_failure_message(exc))
     try:
         window._update_current_main_account(current_main_account_name)
     except Exception as exc:
@@ -107,7 +111,7 @@ def mark_batch_results(window: Any, results: list, *, apply_batch_fetch_results_
     try:
         save_accounts_fn(window.accounts)
     except Exception as exc:
-        window.append_log(f"保存批量抓取结果失败：{exc}")
+        window.append_log(account_state_save_failure_message(exc))
     if latest_actual_account_name:
         try:
             window._update_current_main_account(latest_actual_account_name)

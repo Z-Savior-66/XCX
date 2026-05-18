@@ -184,11 +184,12 @@ python desktop_py_cli.py resend-notifications
 - `data/settings.json`：全局设置
 - `storage/*.json`：各账号登录态
 - `output/desktop_py/<账号>/`：抓取产物
+- `output/desktop_py/diagnostic_index.json`：最近一次批量抓取诊断索引
 - `ms-playwright/`：首次运行后下载的浏览器运行时
 
 ## 诊断产物治理
 
-抓取失败时，程序会在 `output/desktop_py/<账号>/` 下保留 `fetch_manifest.json`、`page.html`、`iframe.html`、`iframe.txt`、`responses.json` 等诊断产物，用于定位页面结构、接口响应和规则版本。界面日志不会输出这些本地路径，避免日常日志噪声；抓取结果 `result.json` 属于业务结果，不会被诊断清理删除。
+抓取失败时，程序会在 `output/desktop_py/<账号>/` 下保留 `fetch_manifest.json`、`page.html`、`iframe.html`、`iframe.txt`、`responses.json` 等诊断产物，用于定位页面结构、接口响应和规则版本。批量抓取会在 `output/desktop_py/diagnostic_index.json` 生成最近一次批量诊断索引，用于快速定位失败账号和对应 manifest。界面日志不会输出这些本地路径，避免日常日志噪声；抓取结果 `result.json` 属于业务结果，不会被诊断清理删除。
 
 默认保留最近 14 天内的诊断产物。每次抓取结果落盘后，程序只会清理超过保留期的诊断文件，并跳过 `result.json`、账号配置、登录态文件和其它业务数据。
 
@@ -225,7 +226,7 @@ python desktop_py_cli.py resend-notifications
 - `dist/`：安装包输出目录
 - `output/`：抓取输出结果，清理前应确认不再需要历史记录
 
-交付前建议先运行 `pwsh ./scripts/verify_local.ps1`，再执行安装包构建。清理目录时只处理明确可再生成的产物，不要批量删除业务状态目录。
+交付前建议先运行 `powershell.exe -ExecutionPolicy Bypass -File .\scripts\verify_local.ps1`，再执行安装包构建。清理目录时只处理明确可再生成的产物，不要批量删除业务状态目录。
 
 ## 抓取说明
 
@@ -244,6 +245,7 @@ python desktop_py_cli.py resend-notifications
 
 - `result.json`：本次采集的最终结果，包括实际账号名、截止时间、页面地址和结果说明。
 - `fetch_manifest.json`：本次采集的诊断清单，包括采集规则版本、步骤状态、失败类型、响应证据摘要和耗时。
+- `output/desktop_py/diagnostic_index.json`：最近一次批量抓取索引，包括账号结果、错误码、耗时和 manifest 路径。
 - `notifications.json`：通知中心命中的目标未读消息。
 - `page.html`、`iframe.html`、`iframe.txt`、`responses.json`：失败或需要排查时保留的页面结构和响应片段。
 

@@ -46,6 +46,15 @@ class NotificationRuleSet:
     target_titles: dict[str, str]
 
 
+@dataclass(frozen=True)
+class TransactionComplaintRuleSet:
+    version: str
+    target_account_names: tuple[str, ...]
+    pending_status: int
+    pending_status_text: str
+    page_size: int
+
+
 DEFAULT_REFUND_RULES = RefundRuleSet(
     version=DEFAULT_FETCH_RULE_VERSION,
     iframe_selectors=(
@@ -112,6 +121,14 @@ DEFAULT_NOTIFICATION_RULES = NotificationRuleSet(
         "annual_review": "小程序微信认证年审通知",
         "copyright_complaint": "你的账号收到一条侵权投诉",
     },
+)
+
+DEFAULT_TRANSACTION_COMPLAINT_RULES = TransactionComplaintRuleSet(
+    version=DEFAULT_FETCH_RULE_VERSION,
+    target_account_names=("当代情诗摘抄合集", "经典诗词摘抄"),
+    pending_status=201,
+    pending_status_text="待处理",
+    page_size=50,
 )
 
 

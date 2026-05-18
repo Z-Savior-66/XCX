@@ -5,7 +5,8 @@ import os
 import sys
 import tempfile
 import time
-from dataclasses import fields
+from collections.abc import Callable
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, cast
 
@@ -20,6 +21,9 @@ BROWSER_PROFILE_LOCK_FILES = (
     "LOCK",
     "lockfile",
 )
+ATOMIC_WRITE_REPLACE_ATTEMPTS = 5
+ATOMIC_WRITE_RETRY_DELAY_SECONDS = 0.1
+RUNNING_INSTANCE_LOCK_STALE_SECONDS = 24 * 60 * 60
 
 
 def runtime_root() -> Path:
@@ -42,6 +46,8 @@ PY_OUTPUT_DIR = PROJECT_ROOT / "output" / "desktop_py"
 ACCOUNTS_FILE = DATA_DIR / "accounts.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 PENDING_NOTIFICATIONS_FILE = DATA_DIR / "pending_notifications.json"
+RUNNING_INSTANCE_LOCK_FILE = DATA_DIR / "app.lock"
+DIAGNOSTIC_INDEX_FILE = PY_OUTPUT_DIR / "diagnostic_index.json"
 DIAGNOSTIC_ARTIFACT_NAMES = frozenset(
     {
         "fetch_manifest.json",
@@ -53,12 +59,142 @@ DIAGNOSTIC_ARTIFACT_NAMES = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class AppInstanceLock:
+    path: Path
+    pid: int
+    token: str
+
+    def release(self) -> None:
+        try:
+            payload = read_json_file(self.path)
+        except OSError, json.JSONDecodeError:
+            return
+        if not isinstance(payload, dict):
+            return
+        if _safe_int(payload.get("pid", 0)) != self.pid or str(payload.get("token", "") or "") != self.token:
+            return
+        try:
+            self.path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def read_json_file(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value or default)
+    except TypeError, ValueError:
+        return default
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value or default)
+    except TypeError, ValueError:
+        return default
+
+
+def _backup_corrupt_json_file(path: Path) -> Path:
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    backup_path = path.with_name(f"{path.name}.{timestamp}.{time.time_ns()}.corrupt")
+    path.replace(backup_path)
+    return backup_path
+
+
+def _read_json_file_or_recover(path: Path, default_content: str) -> Any:
+    try:
+        return read_json_file(path)
+    except json.JSONDecodeError:
+        _backup_corrupt_json_file(path)
+        _write_text_atomic(path, default_content)
+        return json.loads(default_content)
+
+
+def _process_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if pid == os.getpid():
+        return True
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _lock_payload_is_active(
+    payload: object,
+    *,
+    now: float,
+    stale_seconds: int,
+    process_running_fn: Callable[[int], bool],
+) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    pid = _safe_int(payload.get("pid", 0))
+    if pid <= 0:
+        return False
+    if process_running_fn(pid):
+        return True
+    created_at = _safe_float(payload.get("created_at", 0))
+    if created_at <= 0:
+        return False
+    if now - created_at >= stale_seconds:
+        return False
+    return False
+
+
+def acquire_app_instance_lock(
+    *,
+    lock_path: Path = RUNNING_INSTANCE_LOCK_FILE,
+    stale_seconds: int = RUNNING_INSTANCE_LOCK_STALE_SECONDS,
+    process_id_fn: Callable[[], int] = os.getpid,
+    process_running_fn: Callable[[int], bool] = _process_is_running,
+    now_fn: Callable[[], float] = time.time,
+) -> AppInstanceLock:
+    ensure_runtime_dirs()
+    token = str(time.time_ns())
+    pid = process_id_fn()
+    payload = {"pid": pid, "token": token, "created_at": now_fn()}
+    content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    for _attempt in range(2):
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                existing_payload = read_json_file(lock_path)
+            except OSError, json.JSONDecodeError:
+                existing_payload = {}
+            if _lock_payload_is_active(
+                existing_payload,
+                now=now_fn(),
+                stale_seconds=stale_seconds,
+                process_running_fn=process_running_fn,
+            ):
+                raise RuntimeError("小程序工具已在运行，请先关闭现有窗口或托盘图标后再启动。") from None
+            try:
+                lock_path.unlink(missing_ok=True)
+            except OSError as exc:
+                raise RuntimeError(f"清理旧运行锁失败，请关闭现有程序后重试：{exc}") from exc
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as lock_file:
+            lock_file.write(content)
+        return AppInstanceLock(lock_path, pid, token)
+    raise RuntimeError("小程序工具已在运行，请先关闭现有窗口或托盘图标后再启动。")
+
+
 def _write_text_atomic(path: Path, content: str, encoding: str = "utf-8") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if path.exists() and path.read_text(encoding=encoding) == content:
+            return
+    except FileNotFoundError:
+        pass
     temp_path = ""
     try:
         with tempfile.NamedTemporaryFile(
@@ -73,7 +209,14 @@ def _write_text_atomic(path: Path, content: str, encoding: str = "utf-8") -> Non
             temp_file.write(content)
             temp_file.flush()
             os.fsync(temp_file.fileno())
-        Path(temp_path).replace(path)
+        for attempt in range(ATOMIC_WRITE_REPLACE_ATTEMPTS):
+            try:
+                Path(temp_path).replace(path)
+                break
+            except PermissionError:
+                if attempt == ATOMIC_WRITE_REPLACE_ATTEMPTS - 1:
+                    raise
+                time.sleep(ATOMIC_WRITE_RETRY_DELAY_SECONDS)
     except Exception:
         if temp_path:
             try:
@@ -148,7 +291,7 @@ def ensure_runtime_dirs() -> None:
 
 def load_accounts() -> list[AccountConfig]:
     ensure_runtime_dirs()
-    data = cast(list[dict[str, Any]], read_json_file(ACCOUNTS_FILE))
+    data = cast(list[dict[str, Any]], _read_json_file_or_recover(ACCOUNTS_FILE, "[]\n"))
     allowed = {item.name for item in fields(AccountConfig)}
     return [AccountConfig(**{key: value for key, value in item.items() if key in allowed}) for item in data]
 
@@ -162,7 +305,8 @@ def save_accounts(accounts: list[AccountConfig]) -> None:
 
 def load_settings() -> AppSettings:
     ensure_runtime_dirs()
-    raw = cast(dict[str, Any], read_json_file(SETTINGS_FILE))
+    default_content = json.dumps(AppSettings().to_dict(), ensure_ascii=False, indent=2) + "\n"
+    raw = cast(dict[str, Any], _read_json_file_or_recover(SETTINGS_FILE, default_content))
     allowed = {item.name for item in fields(AppSettings)}
     filtered = {key: value for key, value in raw.items() if key in allowed}
     return AppSettings(**filtered)
@@ -177,7 +321,7 @@ def load_pending_notifications() -> list[PendingNotification]:
     ensure_runtime_dirs()
     if not PENDING_NOTIFICATIONS_FILE.exists():
         return []
-    data = cast(list[dict[str, Any]], read_json_file(PENDING_NOTIFICATIONS_FILE))
+    data = cast(list[dict[str, Any]], _read_json_file_or_recover(PENDING_NOTIFICATIONS_FILE, "[]\n"))
     allowed = {item.name for item in fields(PendingNotification)}
     return [PendingNotification(**{key: value for key, value in item.items() if key in allowed}) for item in data]
 
@@ -242,6 +386,17 @@ def write_account_output_json(account_name: str, filename: str, payload: object)
     _write_text_atomic(
         account_output_file(account_name, filename), json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
     )
+
+
+def diagnostic_index_file() -> Path:
+    PY_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    return DIAGNOSTIC_INDEX_FILE
+
+
+def write_diagnostic_index_json(payload: object) -> Path:
+    target = diagnostic_index_file()
+    _write_text_atomic(target, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    return target
 
 
 def write_fetch_result(account_name: str, result: FetchResult, extra: dict | None = None) -> None:

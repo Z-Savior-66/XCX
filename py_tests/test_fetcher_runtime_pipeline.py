@@ -1,3 +1,4 @@
+from desktop_py.core.fetcher_support import FetchError, FetchErrorCode
 from py_tests.fetcher_test_support import (
     AccountConfig,
     CancelledError,
@@ -62,6 +63,129 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
         self.assertEqual([result.account_name for result in results], ["账号A", "账号B", "账号C"])
         self.assertEqual(progress_calls, ["账号A", "账号B", "账号C"])
         self.assertEqual(mock_create_context.call_count, 2)
+
+    def test_fetch_accounts_batch_writes_diagnostic_index(self):
+        accounts = [
+            AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False),
+            AccountConfig(name="账号B", state_path="storage/a.json", is_entry_account=False),
+        ]
+        created_pages = []
+        written_indexes = []
+
+        class FakePageObject:
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        class FakeContext:
+            def new_page(self):
+                page = FakePageObject()
+                created_pages.append(page)
+                return page
+
+            def storage_state(self, path=None, indexed_db=False):
+                return None
+
+            def close(self):
+                return None
+
+        fake_context = FakeContext()
+        fake_browser = type("FakeBrowser", (), {"close": lambda self: None})()
+
+        def fake_fetch(page, context, account, logger, profile_dir, is_cancelled=None):
+            if account.name == "账号B":
+                raise FetchError("接口失败", code=FetchErrorCode.TRANSACTION_COMPLAINT_API_FAILED)
+            return FetchResult(account_name=account.name, ok=True, actual_account_name=account.name)
+
+        with (
+            patch("desktop_py.core.fetcher.sync_playwright") as mock_playwright,
+            patch("desktop_py.core.fetcher.create_browser_context", return_value=(fake_browser, fake_context)),
+            patch("desktop_py.core.fetcher._fetch_account_in_page", side_effect=fake_fetch),
+            patch("desktop_py.core.fetcher.Path.exists", return_value=True),
+            patch("desktop_py.core.fetcher.should_invalidate_runtime", return_value=False),
+            patch(
+                "desktop_py.core.fetcher_pipeline.write_batch_diagnostic_index",
+                side_effect=lambda index: written_indexes.append(index.to_dict()),
+            ),
+        ):
+            mock_playwright.return_value.__enter__.return_value = object()
+
+            results = fetch_accounts_batch(accounts)
+
+        self.assertEqual([result.account_name for result in results], ["账号A", "账号B"])
+        self.assertEqual([result.ok for result in results], [True, False])
+        self.assertEqual(len(created_pages), 1)
+        self.assertEqual(len(written_indexes), 1)
+        self.assertEqual(written_indexes[0]["total_accounts"], 2)
+        self.assertEqual(written_indexes[0]["success_count"], 1)
+        self.assertEqual(written_indexes[0]["failure_count"], 1)
+        self.assertEqual(written_indexes[0]["accounts"][1]["error_code"], "transaction_complaint_api_failed")
+
+    def test_fetch_accounts_batch_ignores_diagnostic_index_write_failure_on_success(self):
+        accounts = [AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False)]
+        logs: list[str] = []
+
+        class FakeContext:
+            def new_page(self):
+                return object()
+
+            def storage_state(self, path=None, indexed_db=False):
+                return None
+
+            def close(self):
+                return None
+
+        fake_context = FakeContext()
+        fake_browser = type("FakeBrowser", (), {"close": lambda self: None})()
+
+        with (
+            patch("desktop_py.core.fetcher.sync_playwright") as mock_playwright,
+            patch("desktop_py.core.fetcher.create_browser_context", return_value=(fake_browser, fake_context)),
+            patch(
+                "desktop_py.core.fetcher._fetch_account_in_page",
+                return_value=FetchResult(account_name="账号A", ok=True, actual_account_name="账号A"),
+            ),
+            patch("desktop_py.core.fetcher.Path.exists", return_value=True),
+            patch("desktop_py.core.fetcher_pipeline.write_batch_diagnostic_index", side_effect=RuntimeError("写盘失败")),
+        ):
+            mock_playwright.return_value.__enter__.return_value = object()
+
+            results = fetch_accounts_batch(accounts, logger=logs.append)
+
+        self.assertEqual([result.account_name for result in results], ["账号A"])
+        self.assertTrue(any("写入批量诊断索引失败" in message for message in logs))
+
+    def test_fetch_accounts_batch_keeps_original_error_when_diagnostic_index_write_fails(self):
+        accounts = [AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False)]
+        logs: list[str] = []
+
+        class FakeContext:
+            def new_page(self):
+                return object()
+
+            def storage_state(self, path=None, indexed_db=False):
+                return None
+
+            def close(self):
+                return None
+
+        fake_context = FakeContext()
+        fake_browser = type("FakeBrowser", (), {"close": lambda self: None})()
+
+        with (
+            patch("desktop_py.core.fetcher.sync_playwright") as mock_playwright,
+            patch("desktop_py.core.fetcher.create_browser_context", side_effect=RuntimeError("抓取失败")),
+            patch("desktop_py.core.fetcher.Path.exists", return_value=True),
+            patch("desktop_py.core.fetcher_pipeline.write_batch_diagnostic_index", side_effect=RuntimeError("写盘失败")),
+        ):
+            mock_playwright.return_value.__enter__.return_value = object()
+
+            with self.assertRaisesRegex(RuntimeError, "抓取失败"):
+                fetch_accounts_batch(accounts, logger=logs.append)
+
+        self.assertTrue(any("写入批量诊断索引失败" in message for message in logs))
 
     def test_fetch_accounts_batch_creates_and_closes_single_page_per_group(self):
         accounts = [
@@ -537,6 +661,146 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
         self.assertEqual(len(seen_confirm_captures[0]), 1)
         self.assertEqual(seen_confirm_captures[0][0]["body"]["data"]["total_count"], 1)
 
+    def test_fetch_account_in_page_checks_ios_refund_after_regular_refund_empty(self):
+        class DemoPage:
+            def __init__(self):
+                self.url = "https://mp.weixin.qq.com/wxamp/index/index?token=1"
+
+        class FrameLocator:
+            def __init__(self, text: str):
+                self.text = text
+
+            def locator(self, selector):
+                return FakeLocator(text=self.text)
+
+            def get_by_text(self, text, exact=False):
+                return FakeLocator(count=0)
+
+        page = DemoPage()
+        account = AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False)
+        frames = [FrameLocator("退款申请(0)"), FrameLocator("退款申请(1) 处理")]
+        opened_urls: list[str] = []
+        detail_feedback_urls: list[str] = []
+
+        def fake_open_feedback_page(current_page, **kwargs):
+            url = kwargs["build_feedback_url_fn"](current_page.url)
+            opened_urls.append(url)
+            current_page.url = url
+            return url
+
+        def fake_confirm_empty_refund_list(**kwargs):
+            return (len(opened_urls) == 1, kwargs["initial_text"])
+
+        def fake_build_detail_result(**kwargs):
+            detail_feedback_urls.append(kwargs["feedback_url"])
+            return FetchResult(
+                account_name=kwargs["account"].name,
+                ok=True,
+                actual_account_name=kwargs["account"].name,
+                deadline_text="2026-05-18 10:00:00",
+                page_url=kwargs["feedback_url"],
+            )
+
+        result = fetch_account_in_page_impl(
+            page,
+            object(),
+            account,
+            None,
+            "",
+            None,
+            account_output_dir_fn=lambda _account_name: Path("output") / "账号A",
+            register_response_capture_fn=lambda _page, _capture: ([], lambda: None),
+            capture_response_payload_fn=lambda response: response,
+            resolve_bootstrap_url_fn=lambda _account, _output_dir: _account.home_url,
+            wait_for_url_contains_fn=lambda *_args, **_kwargs: True,
+            extract_current_account_name_fn=lambda _page: "账号A",
+            should_switch_for_account_fn=lambda _account, _current_account_name: False,
+            switch_to_account_fn=lambda *_args, **_kwargs: None,
+            log_fn=lambda *_args, **_kwargs: None,
+            open_feedback_page_fn=fake_open_feedback_page,
+            build_feedback_url_fn=lambda _page_url: "https://example.com/regular",
+            wait_for_iframe_ready_fn=lambda *_args, **_kwargs: True,
+            resolve_frame_locator_fn=lambda *_args, **_kwargs: frames.pop(0),
+            business_iframe_selector_fn=lambda _page: "#js_iframe",
+            safe_page_content_fn=lambda _page: "<html></html>",
+            is_empty_refund_list_fn=lambda list_text: "退款申请(0)" in list_text,
+            confirm_empty_refund_list_fn=fake_confirm_empty_refund_list,
+            build_empty_refund_result_fn=lambda **_kwargs: (_ for _ in ()).throw(
+                AssertionError("iOS 退款问询非空时不应生成空结果")
+            ),
+            build_detail_result_fn=fake_build_detail_result,
+            build_ios_refund_feedback_url_fn=lambda _page_url: "https://example.com/ios-refund",
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(opened_urls, ["https://example.com/regular", "https://example.com/ios-refund"])
+        self.assertEqual(detail_feedback_urls, ["https://example.com/ios-refund"])
+        self.assertEqual(result.deadline_text, "2026-05-18 10:00:00")
+
+    def test_fetch_account_in_page_does_not_check_ios_refund_when_regular_refund_has_detail(self):
+        class DemoPage:
+            def __init__(self):
+                self.url = "https://mp.weixin.qq.com/wxamp/index/index?token=1"
+
+        class FrameLocator:
+            def locator(self, selector):
+                return FakeLocator(text="退款申请(1) 处理")
+
+            def get_by_text(self, text, exact=False):
+                return FakeLocator(count=0)
+
+        page = DemoPage()
+        account = AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False)
+        opened_urls: list[str] = []
+
+        def fake_open_feedback_page(current_page, **kwargs):
+            url = kwargs["build_feedback_url_fn"](current_page.url)
+            opened_urls.append(url)
+            current_page.url = url
+            return url
+
+        result = fetch_account_in_page_impl(
+            page,
+            object(),
+            account,
+            None,
+            "",
+            None,
+            account_output_dir_fn=lambda _account_name: Path("output") / "账号A",
+            register_response_capture_fn=lambda _page, _capture: ([], lambda: None),
+            capture_response_payload_fn=lambda response: response,
+            resolve_bootstrap_url_fn=lambda _account, _output_dir: _account.home_url,
+            wait_for_url_contains_fn=lambda *_args, **_kwargs: True,
+            extract_current_account_name_fn=lambda _page: "账号A",
+            should_switch_for_account_fn=lambda _account, _current_account_name: False,
+            switch_to_account_fn=lambda *_args, **_kwargs: None,
+            log_fn=lambda *_args, **_kwargs: None,
+            open_feedback_page_fn=fake_open_feedback_page,
+            build_feedback_url_fn=lambda _page_url: "https://example.com/regular",
+            wait_for_iframe_ready_fn=lambda *_args, **_kwargs: True,
+            resolve_frame_locator_fn=lambda *_args, **_kwargs: FrameLocator(),
+            business_iframe_selector_fn=lambda _page: "#js_iframe",
+            safe_page_content_fn=lambda _page: "<html></html>",
+            is_empty_refund_list_fn=lambda list_text: "退款申请(0)" in list_text,
+            confirm_empty_refund_list_fn=lambda **kwargs: (False, kwargs["initial_text"]),
+            build_empty_refund_result_fn=lambda **_kwargs: (_ for _ in ()).throw(
+                AssertionError("未成年退款非空时不应生成空结果")
+            ),
+            build_detail_result_fn=lambda **kwargs: FetchResult(
+                account_name=kwargs["account"].name,
+                ok=True,
+                actual_account_name=kwargs["account"].name,
+                deadline_text="2026-05-18 10:00:00",
+                page_url=kwargs["feedback_url"],
+            ),
+            build_ios_refund_feedback_url_fn=lambda _page_url: (_ for _ in ()).throw(
+                AssertionError("未成年退款非空时不应打开 iOS 退款问询")
+            ),
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(opened_urls, ["https://example.com/regular"])
+
     def test_fetch_account_in_page_appends_notification_summary(self):
         class DemoPage:
             def __init__(self):
@@ -598,6 +862,75 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
 
         self.assertTrue(result.ok)
         self.assertIn("通知中心未读消息 1 条：小程序微信认证年审通知", result.note)
+
+    def test_fetch_account_in_page_appends_transaction_complaints_and_writes_extra(self):
+        class DemoPage:
+            def __init__(self):
+                self.url = "https://mp.weixin.qq.com/wxamp/index/index?token=1"
+
+        page = DemoPage()
+        account = AccountConfig(name="经典诗词摘抄", state_path="storage/a.json", is_entry_account=False)
+        written_results: list[dict] = []
+
+        with patch("desktop_py.core.fetcher_pipeline.write_fetch_result") as write_result:
+            write_result.side_effect = lambda _account_name, _result, extra=None: written_results.append(extra or {})
+            result = fetch_account_in_page_impl(
+                page,
+                object(),
+                account,
+                None,
+                "",
+                None,
+                account_output_dir_fn=lambda _account_name: Path("output") / "经典诗词摘抄",
+                register_response_capture_fn=lambda _page, _capture: ([], lambda: None),
+                capture_response_payload_fn=lambda response: response,
+                resolve_bootstrap_url_fn=lambda _account, _output_dir: _account.home_url,
+                wait_for_url_contains_fn=lambda *_args, **_kwargs: True,
+                extract_current_account_name_fn=lambda _page: "经典诗词摘抄",
+                should_switch_for_account_fn=lambda _account, _current_account_name: False,
+                switch_to_account_fn=lambda *_args, **_kwargs: None,
+                log_fn=lambda *_args, **_kwargs: None,
+                open_feedback_page_fn=lambda _page, **_kwargs: (_ for _ in ()).throw(
+                    AssertionError("目标账号不应打开退款反馈页")
+                ),
+                build_feedback_url_fn=lambda page_url: page_url,
+                wait_for_iframe_ready_fn=lambda *_args, **_kwargs: True,
+                resolve_frame_locator_fn=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    AssertionError("目标账号不应定位退款 iframe")
+                ),
+                business_iframe_selector_fn=lambda _page: "#js_iframe",
+                safe_page_content_fn=lambda _page: "<html></html>",
+                fetch_transaction_complaints_fn=lambda *_args, **_kwargs: {
+                    "ok": True,
+                    "enabled": True,
+                    "complaints": [{"complaint_order_id": "48383455"}],
+                    "summary": "交易投诉待处理 1 条：48383455",
+                    "page_url": "https://example.com/complaint",
+                },
+                is_empty_refund_list_fn=lambda list_text: "退款申请(0)" in list_text,
+                confirm_empty_refund_list_fn=lambda **kwargs: (True, kwargs["initial_text"]),
+                build_empty_refund_result_fn=lambda **kwargs: FetchResult(
+                    account_name=kwargs["account"].name,
+                    ok=True,
+                    actual_account_name=kwargs["account"].name,
+                    page_url=kwargs["feedback_url"],
+                    note="当前账号无待处理申请。",
+                ),
+                build_detail_result_fn=lambda **kwargs: FetchResult(
+                    account_name=kwargs["account"].name,
+                    ok=True,
+                    actual_account_name=kwargs["account"].name,
+                    page_url=kwargs["feedback_url"],
+                ),
+                build_ios_refund_feedback_url_fn=lambda _page_url: (_ for _ in ()).throw(
+                    AssertionError("目标账号不应打开 iOS 退款问询")
+                ),
+            )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.page_url, "https://example.com/complaint")
+        self.assertIn("交易投诉待处理 1 条：48383455", result.note)
+        self.assertEqual(written_results[-1]["transaction_complaints"], [{"complaint_order_id": "48383455"}])
 
     def test_fetch_account_in_page_recovers_login_timeout_screen_before_opening_feedback(self):
         class TimeoutThenReadyPage:

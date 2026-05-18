@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from desktop_py.core.fetcher_output import persist_storage_state, write_fetch_artifacts
 from desktop_py.core.fetcher_rules import DEFAULT_REFUND_RULES
-from desktop_py.core.fetcher_support import FetchError, _fallback_from_responses
+from desktop_py.core.fetcher_support import FetchError, FetchErrorCode, _fallback_from_responses
 from desktop_py.core.models import AccountConfig, FetchResult
 from desktop_py.core.response_capture import (
     _capture_response_payload,
@@ -325,7 +325,19 @@ def resolve_frame_locator(
     if not iframe_selector:
         html = safe_page_content_fn(page)
         write_account_output_text(output_dir.name, "page.html", html)
-        raise FetchError("页面未出现业务 iframe，可能是链接失效、无权限或登录态失效。")
+        raise FetchError(
+            "页面未出现业务 iframe，可能是链接失效、无权限或登录态失效。",
+            code=FetchErrorCode.BUSINESS_IFRAME_MISSING,
+            evidence=[
+                {
+                    "kind": "html",
+                    "label": "页面 HTML",
+                    "path": str(output_dir / "page.html"),
+                    "summary": "未定位到业务 iframe，已保存当前页面 HTML。",
+                    "metadata": {"page_url": str(getattr(page, "url", "") or "")},
+                }
+            ],
+        )
     return page.frame_locator(iframe_selector)
 
 
@@ -553,7 +565,25 @@ def build_detail_result(
             frame_text=frame_text,
             captures=captures,
         )
-        raise FetchError("未在详情页文本中提取到处理截止时间。")
+        raise FetchError(
+            "未在详情页文本中提取到处理截止时间。",
+            code=FetchErrorCode.DEADLINE_MISSING,
+            evidence=[
+                {
+                    "kind": "html",
+                    "label": "页面 HTML",
+                    "path": str(output_dir / "page.html"),
+                    "summary": "未提取到处理截止时间，已保存页面和 iframe 诊断文件。",
+                },
+                {
+                    "kind": "text",
+                    "label": "iframe 文本",
+                    "path": str(output_dir / "iframe.txt"),
+                    "summary": "详情页文本未包含可识别的处理截止时间。",
+                    "metadata": {"capture_count": len(captures)},
+                },
+            ],
+        )
 
     persist_storage_state(context, account.state_path, page=page, logger=logger, log_fn=_log)
     result = FetchResult(

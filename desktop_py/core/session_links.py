@@ -6,6 +6,7 @@ from desktop_py.core.models import AccountConfig
 
 GAME_FEEDBACK_BASE_URL = "https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback"
 WECHAT_BACKEND_HOST = "mp.weixin.qq.com"
+IOS_REFUND_FEEDBACK_CUSTOM_PATH = "path=/old-teenager-refund-process"
 
 
 def extract_token_from_url(url: str) -> str:
@@ -35,6 +36,27 @@ def build_feedback_url_from_token(token: str) -> str:
     )
 
 
+def build_ios_refund_feedback_url_from_token(token: str) -> str:
+    value = token.strip()
+    if not value:
+        return ""
+    return (
+        GAME_FEEDBACK_BASE_URL
+        + "?"
+        + urlencode(
+            {
+                "action": "plugin_redirect",
+                "plugin_uin": "1039",
+                "selected": "2",
+                "submenu_selected": "3",
+                "custom": IOS_REFUND_FEEDBACK_CUSTOM_PATH,
+                "token": value,
+                "lang": "zh_CN",
+            }
+        )
+    )
+
+
 def canonical_feedback_url(url: str) -> str:
     value = url.strip()
     if not value:
@@ -50,6 +72,23 @@ def canonical_feedback_url(url: str) -> str:
     if "/wxamp/" not in path and "pluginredirect/gamefeedback" not in value.lower():
         return ""
     return build_feedback_url_from_token(token)
+
+
+def canonical_ios_refund_feedback_url(url: str) -> str:
+    value = url.strip()
+    if not value:
+        return ""
+    parsed = urlparse(value)
+    host = (parsed.netloc or "").strip().lower()
+    path = (parsed.path or "").strip().lower()
+    token = extract_token_from_url(value)
+    if not token:
+        return ""
+    if host and host != WECHAT_BACKEND_HOST:
+        return ""
+    if "/wxamp/" not in path and "pluginredirect/gamefeedback" not in value.lower():
+        return ""
+    return build_ios_refund_feedback_url_from_token(token)
 
 
 def refresh_account_feedback_url(account: AccountConfig, page_url: str) -> bool:

@@ -1,3 +1,6 @@
+from urllib.parse import parse_qs, urlparse
+
+from desktop_py.core.fetcher_common import build_ios_refund_feedback_url
 from py_tests.fetcher_test_support import (
     FakePage,
     FetcherTestBase,
@@ -19,6 +22,16 @@ class FetcherContractTestCase(FetcherTestBase):
         self.assertIn("plugin_uin=1010", url)
         self.assertIn("selected=2", url)
         self.assertIn("token=2056634783", url)
+
+    def test_build_ios_refund_feedback_url(self):
+        url = build_ios_refund_feedback_url("https://mp.weixin.qq.com/wxamp/index/index?lang=zh_CN&token=2056634783")
+        query = parse_qs(urlparse(url).query)
+
+        self.assertEqual(query["plugin_uin"], ["1039"])
+        self.assertEqual(query["selected"], ["2"])
+        self.assertEqual(query["submenu_selected"], ["3"])
+        self.assertEqual(query["custom"], ["path=/old-teenager-refund-process"])
+        self.assertEqual(query["token"], ["2056634783"])
 
     def test_contract_fixture_switch_account_menu_matches_title_selector(self):
         page = FixturePage(self.read_fixture("switch_account_menu.html"))

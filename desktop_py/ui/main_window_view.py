@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from desktop_py.core.account_status import SUCCESS_ACCOUNT_STATUSES
 from desktop_py.ui.account_presenter import (
     deadline_tooltip_text,
     display_account_name,
@@ -545,7 +546,7 @@ def refresh_summary_cards(window) -> None:
     imported_accounts = [account for account in window.accounts if not account.is_entry_account]
     total = len(imported_accounts)
     enabled = sum(1 for account in imported_accounts if account.enabled)
-    healthy = sum(1 for account in imported_accounts if account.last_status in {"抓取成功", "登录有效", "已保存登录态"})
+    healthy = sum(1 for account in imported_accounts if account.last_status in SUCCESS_ACCOUNT_STATUSES)
     recent_times = [account.last_fetch_at for account in imported_accounts if account.last_fetch_at]
     recent = max(recent_times) if recent_times else "暂无"
 
