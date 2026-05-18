@@ -165,11 +165,17 @@ def should_retry_switch_from_home(current_url: str, home_url: str, has_switch_en
     return should_retry_switch_from_home_impl(current_url, home_url, has_switch_entry)
 
 
-def prepare_switch_account_page(page: Page, home_url: str = "", logger: Logger | None = None) -> None:
+def prepare_switch_account_page(
+    page: Page,
+    home_url: str = "",
+    logger: Logger | None = None,
+    fallback_url: str = "",
+) -> None:
     prepare_switch_account_page_impl(
         page,
         home_url,
         logger,
+        fallback_url=fallback_url,
         switch_dialog_ready_fn=_switch_dialog_ready,
         find_switch_entry_fn=find_switch_entry,
         should_retry_switch_from_home_fn=should_retry_switch_from_home,
@@ -272,11 +278,17 @@ def should_switch_for_account(account: AccountConfig, current_account_name: str)
     return should_switch_for_account_impl(account, current_account_name)
 
 
-def list_switchable_accounts(page: Page, home_url: str = "", logger: Logger | None = None) -> list[str]:
+def list_switchable_accounts(
+    page: Page,
+    home_url: str = "",
+    logger: Logger | None = None,
+    fallback_url: str = "",
+) -> list[str]:
     return list_switchable_accounts_impl(
         page,
         home_url,
         logger,
+        fallback_url=fallback_url,
         prepare_switch_account_page_fn=prepare_switch_account_page,
         open_switch_account_dialog_fn=open_switch_account_dialog,
         wait_for_switch_account_items_fn=wait_for_switch_account_items,

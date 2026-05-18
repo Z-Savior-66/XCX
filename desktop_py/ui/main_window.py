@@ -475,7 +475,9 @@ class MainWindow(QMainWindow):
         )
 
     def import_accounts(self) -> None:
-        import_accounts_impl(self, fetch_switchable_accounts_fn=fetch_switchable_accounts)
+        import_accounts_impl(
+            self, fetch_switchable_accounts_fn=fetch_switchable_accounts, save_accounts_fn=save_accounts
+        )
 
     def _merge_imported_accounts(self, base_account: AccountConfig, names: list[str]) -> None:
         merge_imported_accounts_impl(

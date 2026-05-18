@@ -300,3 +300,159 @@ class FetcherSwitchingTestCase(FetcherTestBase):
 
         self.assertTrue(page.recovered)
         self.assertEqual(page.goto_calls, [])
+
+    def test_prepare_switch_account_page_recovers_root_page_before_switch_lookup(self):
+        logs: list[str] = []
+        waited_keywords: list[tuple[str, ...]] = []
+
+        class RootPage:
+            def __init__(self):
+                self.url = "https://mp.weixin.qq.com/"
+                self.recovered = False
+                self.goto_calls: list[str] = []
+
+            def wait_for_load_state(self, state=None, timeout=None):
+                return None
+
+            def wait_for_timeout(self, timeout):
+                return None
+
+            def get_by_text(self, text, exact=False):
+                if text == "切换账号" and self.recovered:
+                    return FakeLocator(count=1)
+                return FakeLocator()
+
+            def locator(self, selector, **kwargs):
+                has_text = kwargs.get("has_text")
+                if selector in {
+                    "div:has-text('小程序')",
+                    "span:has-text('小程序')",
+                    "a:has-text('小程序')",
+                    "text=小程序",
+                }:
+                    return FakeLocator(count=0 if self.recovered else 1, click_cb=self._recover)
+                if selector == "div.menu_box_account_info_item[title='切换账号']":
+                    return FakeLocator(count=1 if self.recovered else 0)
+                if selector == ".menu_box_account_info_item" and has_text == "切换账号":
+                    return FakeLocator(count=1 if self.recovered else 0)
+                if selector == "[title='切换账号']":
+                    return FakeLocator(count=1 if self.recovered else 0)
+                if selector in {
+                    ".switch_account_dialog",
+                    ".switch_account_dialog .account_item",
+                    "text=登录超时，请重新登录",
+                    "text=登录超时",
+                    "text=请重新登录",
+                    "text=退出登录",
+                }:
+                    return FakeLocator()
+                return FakeLocator()
+
+            def content(self):
+                if self.recovered:
+                    return '<div class="menu_box_account_info_item" title="切换账号">切换账号</div>'
+                return "<div>小程序</div>"
+
+            def goto(self, url, wait_until=None, timeout=None):
+                self.goto_calls.append(url)
+                self.url = url
+
+            def _recover(self):
+                self.recovered = True
+                self.url = "https://mp.weixin.qq.com/wxamp/index/index?token=1"
+
+        page = RootPage()
+        prepare_switch_account_page(
+            page,
+            "https://mp.weixin.qq.com/",
+            logs.append,
+            switch_dialog_ready_fn=lambda _page: False,
+            find_switch_entry_fn=find_switch_entry,
+            should_retry_switch_from_home_fn=should_retry_switch_from_home,
+            log_fn=lambda logger, message: logger(message),
+            wait_for_url_contains_fn=lambda _page, keywords, **_kwargs: waited_keywords.append(keywords) or True,
+        )
+
+        self.assertTrue(page.recovered)
+        self.assertEqual(page.goto_calls, [])
+        self.assertIn(("token=", "/wxamp/index/index"), waited_keywords)
+        self.assertIn("微信后台根页恢复成功。", logs)
+
+    def test_prepare_switch_account_page_falls_back_to_feedback_url_when_root_recovery_stays_on_root(self):
+        logs: list[str] = []
+
+        class RootPage:
+            def __init__(self):
+                self.url = "https://mp.weixin.qq.com/"
+                self.recovered = False
+                self.goto_calls: list[str] = []
+
+            def wait_for_load_state(self, state=None, timeout=None):
+                return None
+
+            def wait_for_timeout(self, timeout):
+                return None
+
+            def get_by_text(self, text, exact=False):
+                if text == "切换账号" and self.recovered:
+                    return FakeLocator(count=1)
+                return FakeLocator()
+
+            def locator(self, selector, **kwargs):
+                has_text = kwargs.get("has_text")
+                if selector in {
+                    "div:has-text('小程序')",
+                    "span:has-text('小程序')",
+                    "a:has-text('小程序')",
+                    "text=小程序",
+                }:
+                    return FakeLocator(count=1)
+                if selector == "div.menu_box_account_info_item[title='切换账号']":
+                    return FakeLocator(count=1 if self.recovered else 0)
+                if selector == ".menu_box_account_info_item" and has_text == "切换账号":
+                    return FakeLocator(count=1 if self.recovered else 0)
+                if selector == "[title='切换账号']":
+                    return FakeLocator(count=1 if self.recovered else 0)
+                if selector in {
+                    ".switch_account_dialog",
+                    ".switch_account_dialog .account_item",
+                    "text=登录超时，请重新登录",
+                    "text=登录超时",
+                    "text=请重新登录",
+                    "text=退出登录",
+                }:
+                    return FakeLocator()
+                return FakeLocator()
+
+            def content(self):
+                if self.recovered:
+                    return '<div class="menu_box_account_info_item" title="切换账号">切换账号</div>'
+                return "<div>小程序</div>"
+
+            def goto(self, url, wait_until=None, timeout=None):
+                self.goto_calls.append(url)
+                self.url = url
+                self.recovered = "pluginRedirect/gameFeedback" in url
+
+        feedback_url = "https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?token=321"
+        page = RootPage()
+        prepare_switch_account_page(
+            page,
+            "https://mp.weixin.qq.com/",
+            logs.append,
+            fallback_url=feedback_url,
+            switch_dialog_ready_fn=lambda _page: False,
+            find_switch_entry_fn=find_switch_entry,
+            should_retry_switch_from_home_fn=should_retry_switch_from_home,
+            log_fn=lambda logger, message: logger(message),
+            wait_for_url_contains_fn=lambda *_args, **_kwargs: True,
+        )
+
+        self.assertEqual(
+            page.goto_calls,
+            [
+                "https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?action=plugin_redirect&plugin_uin=1010&selected=2&token=321&lang=zh_CN"
+            ],
+        )
+        self.assertIn("微信后台根页恢复失败：点击“小程序”后仍停留在根页。", logs)
+        self.assertTrue(any("正在打开历史反馈页重试" in message for message in logs))

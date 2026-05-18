@@ -311,6 +311,7 @@ def validate_account_state_impl(
                 log_fn=log_fn,
                 wait_for_url_contains_fn=wait_for_url_contains_fn,
                 timeout_ms=10000,
+                prefer_feedback_url=True,
             )
             valid = verification.valid
         except PlaywrightTimeoutError:

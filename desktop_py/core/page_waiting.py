@@ -128,7 +128,7 @@ def _page_contains_text(page: Page, text: str, *, safe_page_content_fn: SafePage
     if text in html:
         return True
     try:
-        return page.locator(f"text={text}").count() > 0
+        return bool(page.locator(f"text={text}").count() > 0)
     except Exception:
         return False
 
@@ -242,7 +242,7 @@ def safe_page_content(page: Page, timeout_ms: int = 3000) -> str:
         pass
     while time.monotonic() < deadline:
         try:
-            return page.content()
+            return str(page.content())
         except Exception as exc:
             last_error = exc
             if _is_navigation_content_error(exc):
@@ -259,4 +259,4 @@ def safe_page_content(page: Page, timeout_ms: int = 3000) -> str:
             page.wait_for_timeout(200)
     if last_error is not None:
         raise last_error
-    return page.content()
+    return str(page.content())

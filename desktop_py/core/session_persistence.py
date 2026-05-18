@@ -261,6 +261,8 @@ def create_browser_context(
 
 
 def _close_page(page: Any) -> None:
+    if _page_is_closed(page):
+        return
     close = getattr(page, "close", None)
     if callable(close):
         close()
@@ -276,6 +278,7 @@ def _close_context_and_browser(
     log_fn: Callable[[Logger | None, str], None] | None = None,
     wait_or_cancel_fn: WaitOrCancel = wait_or_cancel,
     is_cancelled: CancelCheck | None = None,
+    fallback_verify_fn: Callable[[str], bool] | None = None,
 ) -> None:
     context_error: Exception | None = None
     if persist_state and state_path is not None:
@@ -288,6 +291,7 @@ def _close_context_and_browser(
                 log_fn=log_fn,
                 wait_or_cancel_fn=wait_or_cancel_fn,
                 is_cancelled=is_cancelled,
+                fallback_verify_fn=fallback_verify_fn,
             )
         except Exception as exc:
             context_error = exc

@@ -303,6 +303,17 @@ def _probe_account_session(
     ).valid
 
 
+def _probe_account_candidate_urls(account: AccountConfig, *, prefer_feedback_url: bool = False) -> list[str]:
+    urls: list[str] = []
+    feedback_url = canonical_feedback_url(account.feedback_url)
+    candidates = (feedback_url, account.home_url) if prefer_feedback_url else (account.home_url,)
+    for url in candidates:
+        value = url.strip()
+        if value and value not in urls:
+            urls.append(value)
+    return urls
+
+
 def _probe_account_session_result(
     page: Any,
     account: AccountConfig,
@@ -311,6 +322,7 @@ def _probe_account_session_result(
     log_fn: LogFn | None = None,
     wait_for_url_contains_fn: Callable[..., Any],
     timeout_ms: int,
+    prefer_feedback_url: bool = False,
 ) -> SessionVerification:
     if not callable(getattr(page, "goto", None)):
         return SessionVerification(
@@ -320,19 +332,30 @@ def _probe_account_session_result(
             branch="compatibility_page_without_goto",
             page_url=str(getattr(page, "url", "") or ""),
         )
-    _probe_account_session_url(
-        page,
-        account.home_url,
-        wait_for_url_contains_fn=wait_for_url_contains_fn,
-        timeout_ms=timeout_ms,
+
+    verification = SessionVerification(
+        False,
+        status=SESSION_STATUS_MISSING,
+        reason="没有可用于探测的后台地址",
+        branch="missing_probe_url",
+        should_relogin=True,
     )
-    verification = verify_backend_session(page, account)
-    if (
-        not verification.valid
-        and verification.branch == "missing_backend_account_signals"
-        and is_wechat_mp_root_page_url(verification.page_url)
-        and recover_wechat_mp_root_page(page, wait_or_cancel_fn=_wait_for_timeout, logger=logger, log_fn=log_fn)
-    ):
-        _wait_for_backend_session(page, wait_for_url_contains_fn=wait_for_url_contains_fn, timeout_ms=timeout_ms)
+    for url in _probe_account_candidate_urls(account, prefer_feedback_url=prefer_feedback_url):
+        _probe_account_session_url(
+            page,
+            url,
+            wait_for_url_contains_fn=wait_for_url_contains_fn,
+            timeout_ms=timeout_ms,
+        )
         verification = verify_backend_session(page, account)
+        if (
+            not verification.valid
+            and verification.branch == "missing_backend_account_signals"
+            and is_wechat_mp_root_page_url(verification.page_url)
+            and recover_wechat_mp_root_page(page, wait_or_cancel_fn=_wait_for_timeout, logger=logger, log_fn=log_fn)
+        ):
+            _wait_for_backend_session(page, wait_for_url_contains_fn=wait_for_url_contains_fn, timeout_ms=timeout_ms)
+            verification = verify_backend_session(page, account)
+        if verification.valid:
+            return verification
     return verification

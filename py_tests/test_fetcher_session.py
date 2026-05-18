@@ -510,7 +510,7 @@ class FetcherSessionTestCase(FetcherTestBase):
 
         self.assertEqual(calls, ["page", "context", "browser"])
 
-    def test_fetch_switchable_accounts_uses_home_url_instead_of_stale_feedback_url(self):
+    def test_fetch_switchable_accounts_uses_feedback_url_before_home_url(self):
         calls: list[str] = []
 
         class FakePageForSwitch:
@@ -549,7 +549,134 @@ class FetcherSessionTestCase(FetcherTestBase):
             names = fetch_switchable_accounts(account)
 
         self.assertEqual(names, ["账号A"])
-        self.assertEqual(calls[0], "goto:https://mp.weixin.qq.com/")
+        self.assertEqual(
+            calls[0],
+            "goto:https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?action=plugin_redirect&plugin_uin=1010&selected=2&token=old&lang=zh_CN",
+        )
+
+    def test_validate_account_state_uses_feedback_url_before_home_url(self):
+        account = AccountConfig(
+            name="主账号",
+            state_path="storage/shared.json",
+            home_url="https://mp.weixin.qq.com/",
+            feedback_url="https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?token=321",
+        )
+        calls: list[str] = []
+
+        class FakePageForValidation:
+            def __init__(self):
+                self.url = ""
+
+            def goto(self, url, wait_until=None, timeout=None):
+                calls.append(f"goto:{url}")
+                self.url = url
+
+            def close(self):
+                return None
+
+        class FakeContextForValidation:
+            def __init__(self):
+                self.page = FakePageForValidation()
+
+            def new_page(self):
+                return self.page
+
+            def close(self):
+                return None
+
+        with (
+            patch("desktop_py.core.fetcher.sync_playwright") as mock_playwright,
+            patch("desktop_py.core.fetcher.create_browser_context", return_value=(None, FakeContextForValidation())),
+            patch("desktop_py.core.fetcher.Path.exists", return_value=True),
+            patch("desktop_py.core.fetcher.wait_for_url_contains", return_value=True),
+        ):
+            mock_playwright.return_value.__enter__.return_value = object()
+
+            valid = validate_account_state(account)
+
+        self.assertTrue(valid)
+        self.assertEqual(
+            calls,
+            [
+                "goto:https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?action=plugin_redirect&plugin_uin=1010&selected=2&token=321&lang=zh_CN"
+            ],
+        )
+
+    def test_fetch_switchable_accounts_falls_back_when_shared_profile_indexed_db_export_fails(self):
+        calls: list[str] = []
+        logs: list[str] = []
+
+        class FakePageForSwitch:
+            def __init__(self):
+                self.closed = False
+
+            def goto(self, _url, wait_until=None, timeout=None):
+                calls.append("goto")
+
+            def close(self):
+                self.closed = True
+                calls.append("page")
+
+            def is_closed(self):
+                return self.closed
+
+        class FakeContextForSwitch:
+            def __init__(self):
+                self.page = FakePageForSwitch()
+
+            def new_page(self):
+                return self.page
+
+            def storage_state(self, path=None, indexed_db=False):
+                calls.append(f"storage:{Path(path).name}:{indexed_db}")
+                if indexed_db:
+                    raise RuntimeError("Unable to serialize IndexedDB: Internal error.")
+                self.write_state(path)
+
+            def write_state(self, path):
+                Path(path).write_text(
+                    json.dumps(
+                        {
+                            "cookies": [
+                                {
+                                    "name": "session",
+                                    "value": "x",
+                                    "domain": "mp.weixin.qq.com",
+                                    "path": "/",
+                                    "expires": -1,
+                                }
+                            ],
+                            "origins": [],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            def close(self):
+                calls.append("context")
+
+        with TemporaryDirectory() as temp_dir:
+            state_path = str(Path(temp_dir) / "shared.json")
+            account = AccountConfig(name="主账号", state_path=state_path)
+            with (
+                patch("desktop_py.core.fetcher.sync_playwright") as mock_playwright,
+                patch("desktop_py.core.fetcher.create_browser_context", return_value=(None, FakeContextForSwitch())),
+                patch("desktop_py.core.fetcher.validate_shared_browser_profile_dir", return_value="C:/profile"),
+                patch("desktop_py.core.fetcher.wait_for_url_contains", return_value=True),
+                patch("desktop_py.core.fetcher.list_switchable_accounts", return_value=["账号A", "账号B"]),
+                patch("desktop_py.core.session_persistence._wait_or_sleep", return_value=None),
+            ):
+                mock_playwright.return_value.__enter__.return_value = object()
+
+                names = fetch_switchable_accounts(account, profile_dir="C:/profile", logger=logs.append)
+
+            self.assertTrue(Path(state_path).exists())
+
+        self.assertEqual(names, ["账号A", "账号B"])
+        self.assertEqual(calls.count("storage:shared.json:True"), 3)
+        self.assertIn("storage:.shared.json.fallback.tmp:False", calls)
+        self.assertEqual(calls[-1], "context")
+        self.assertIn("降级登录态已通过复验并保存。", logs)
 
     def test_validate_account_state_does_not_persist_shared_profile_state(self):
         calls: list[str] = []

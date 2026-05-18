@@ -9,13 +9,17 @@ from playwright.sync_api import Locator, Page
 
 from desktop_py.core.fetcher_support import (
     FetchError,
+    _log,
+    analyze_storage_state,
     ensure_account_session_available,
     is_login_timeout_page,
     normalize_profile_dir,
     recover_login_timeout_page,
+    recover_wechat_mp_root_page,
     safe_page_content,
 )
 from desktop_py.core.models import AccountConfig
+from desktop_py.core.session_links import canonical_feedback_url
 
 Logger = Callable[[str], None]
 CancelCheck = Callable[[], bool]
@@ -51,7 +55,7 @@ def switch_dialog_ready_impl(page: Page) -> bool:
             return True
     except Exception:
         pass
-    return page.locator(".switch_account_dialog .account_item").count() > 0
+    return bool(page.locator(".switch_account_dialog .account_item").count() > 0)
 
 
 def maybe_expand_account_menu_impl(page: Page) -> None:
@@ -82,10 +86,33 @@ def should_retry_switch_from_home_impl(current_url: str, home_url: str, has_swit
     return normalized_current_url != normalized_home_url
 
 
+def resolve_switch_bootstrap_url_impl(account: AccountConfig) -> str:
+    return canonical_feedback_url(account.feedback_url) or account.home_url
+
+
+def _normalized_url(value: str) -> str:
+    return value.strip().rstrip("/")
+
+
+def _navigate_switch_retry_url(
+    page: Page,
+    retry_url: str,
+    logger: Logger | None,
+    *,
+    message: str,
+    log_fn: LogFn,
+    wait_for_url_contains_fn: Callable[..., Any],
+) -> None:
+    log_fn(logger, f"{message}：{retry_url}")
+    page.goto(retry_url, wait_until="domcontentloaded", timeout=60000)
+    wait_for_url_contains_fn(page, ("token=", "/wxamp/index/index", "pluginRedirect/gameFeedback"), timeout_ms=4000)
+
+
 def prepare_switch_account_page_impl(
     page: Page,
     home_url: str = "",
     logger: Logger | None = None,
+    fallback_url: str = "",
     *,
     switch_dialog_ready_fn: Callable[[Page], bool],
     find_switch_entry_fn: Callable[[Page], Locator | None],
@@ -102,11 +129,47 @@ def prepare_switch_account_page_impl(
             wait_or_cancel_fn=_wait_for_timeout,
         )
     has_switch_entry = switch_dialog_ready_fn(page) or find_switch_entry_fn(page) is not None
+    if not has_switch_entry and recover_wechat_mp_root_page(
+        page,
+        logger=logger,
+        log_fn=log_fn,
+        wait_or_cancel_fn=_wait_for_timeout,
+    ):
+        wait_for_url_contains_fn(page, ("token=", "/wxamp/index/index"), timeout_ms=4000)
+        has_switch_entry = switch_dialog_ready_fn(page) or find_switch_entry_fn(page) is not None
+    normalized_fallback_url = canonical_feedback_url(fallback_url)
+    if (
+        not has_switch_entry
+        and normalized_fallback_url
+        and _normalized_url(page.url) != _normalized_url(normalized_fallback_url)
+    ):
+        _navigate_switch_retry_url(
+            page,
+            normalized_fallback_url,
+            logger,
+            message="当前页面未发现切换入口，正在打开历史反馈页重试",
+            log_fn=log_fn,
+            wait_for_url_contains_fn=wait_for_url_contains_fn,
+        )
+        if is_login_timeout_page(page, safe_page_content_fn=safe_page_content):
+            recover_login_timeout_page(
+                page,
+                logger=logger,
+                log_fn=log_fn,
+                safe_page_content_fn=safe_page_content,
+                wait_or_cancel_fn=_wait_for_timeout,
+            )
+        has_switch_entry = switch_dialog_ready_fn(page) or find_switch_entry_fn(page) is not None
     if not should_retry_switch_from_home_fn(page.url, home_url, has_switch_entry):
         return
-    log_fn(logger, f"当前页面未发现切换入口，正在返回后台首页重试：{home_url}")
-    page.goto(home_url, wait_until="domcontentloaded", timeout=60000)
-    wait_for_url_contains_fn(page, ("token=", "/wxamp/index/index"), timeout_ms=4000)
+    _navigate_switch_retry_url(
+        page,
+        home_url,
+        logger,
+        message="当前页面未发现切换入口，正在返回后台首页重试",
+        log_fn=log_fn,
+        wait_for_url_contains_fn=wait_for_url_contains_fn,
+    )
     if is_login_timeout_page(page, safe_page_content_fn=safe_page_content):
         recover_login_timeout_page(
             page,
@@ -281,12 +344,13 @@ def list_switchable_accounts_impl(
     page: Page,
     home_url: str = "",
     logger: Logger | None = None,
+    fallback_url: str = "",
     *,
     prepare_switch_account_page_fn: Callable[..., Any],
     open_switch_account_dialog_fn: Callable[..., Any],
     wait_for_switch_account_items_fn: Callable[..., Locator],
 ) -> list[str]:
-    prepare_switch_account_page_fn(page, home_url, logger)
+    prepare_switch_account_page_fn(page, home_url, logger, fallback_url=fallback_url)
     open_switch_account_dialog_fn(page)
     account_items = wait_for_switch_account_items_fn(page, ".switch_account_dialog .account_item .account_name", logger)
 
@@ -303,8 +367,8 @@ def list_switchable_accounts_impl(
 
 
 def wait_for_locator_items_impl(page: Page, locator: Locator, timeout_ms: int = 5000, interval_ms: int = 250) -> bool:
-    deadline = time.monotonic() + (timeout_ms / 1000)
-    while time.monotonic() < deadline:
+    attempts = max(1, timeout_ms // max(interval_ms, 1))
+    for _ in range(attempts):
         if locator.count() > 0:
             return True
         page.wait_for_timeout(interval_ms)
@@ -372,12 +436,13 @@ def fetch_switchable_accounts_impl(
         browser, context = create_browser_context_fn(playwright, account, headless, normalized_profile_dir)
         page = context.new_page()
         try:
-            bootstrap_url = account.home_url
+            bootstrap_url = resolve_switch_bootstrap_url_impl(account)
             page.goto(bootstrap_url, wait_until="domcontentloaded", timeout=60000)
             wait_for_url_contains_fn(
                 page, ("token=", "/wxamp/index/index", "pluginRedirect/gameFeedback"), timeout_ms=4000
             )
-            names = list_switchable_accounts_fn(page, account.home_url, logger)
+            fallback_url = bootstrap_url if bootstrap_url != account.home_url else ""
+            names = list_switchable_accounts_fn(page, account.home_url, logger, fallback_url=fallback_url)
         finally:
             close_page_fn(page)
             close_context_and_browser_fn(
@@ -386,5 +451,8 @@ def fetch_switchable_accounts_impl(
                 state_path=state_path if normalized_profile_dir else None,
                 persist_state=bool(normalized_profile_dir),
                 page=page,
+                logger=logger,
+                log_fn=_log,
+                fallback_verify_fn=lambda temp_state_path: analyze_storage_state(temp_state_path).has_reusable_state,
             )
     return list(names)

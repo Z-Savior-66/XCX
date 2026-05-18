@@ -125,7 +125,7 @@ def edit_account(window: Any, *, account_dialog_cls: Any, default_state_path_fn:
     window.append_log(f"已更新账号：{updated.name}")
 
 
-def import_accounts(window: Any, *, fetch_switchable_accounts_fn: Any) -> None:
+def import_accounts(window: Any, *, fetch_switchable_accounts_fn: Any, save_accounts_fn: Any | None = None) -> None:
     base_account = window.selected_account()
     if not base_account:
         window._show_info("提示", "请先选择一个已登录的账号作为读取入口。")
@@ -133,6 +133,8 @@ def import_accounts(window: Any, *, fetch_switchable_accounts_fn: Any) -> None:
     if not base_account.is_entry_account:
         window._show_info("提示", "只有主账号可以导入账号列表。")
         return
+    if sync_account_feedback_url(window.accounts, base_account) and callable(save_accounts_fn):
+        save_accounts_fn(window.accounts)
     window._run_thread(
         lambda log: fetch_switchable_accounts_fn(
             base_account,

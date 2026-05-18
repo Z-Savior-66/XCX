@@ -211,6 +211,46 @@ class UiAccountTestCase(UiTestBase):
         self.assertIn("只有主账号可以导入账号列表", mock_information.call_args.args[1])
         mock_run_thread.assert_not_called()
 
+    def test_import_accounts_reuses_shared_feedback_url_from_fetched_imported_account(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window.accounts = [
+            AccountConfig(name="主账号", state_path="storage/shared.json", is_entry_account=True),
+            AccountConfig(
+                name="导入账号",
+                state_path="storage/shared.json",
+                is_entry_account=False,
+                feedback_url="https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?token=321",
+            ),
+        ]
+        window.refresh_table()
+        window.table.selectRow(0)
+        seen_feedback_urls: list[str] = []
+
+        def fake_fetch_switchable_accounts(account, **_kwargs):
+            seen_feedback_urls.append(account.feedback_url)
+            return ["导入账号"]
+
+        def run_immediately(job, on_success=None):
+            result = job(lambda _message: None)
+            if callable(on_success):
+                on_success(result)
+
+        with (
+            patch.object(window, "_run_thread", side_effect=run_immediately),
+            patch("desktop_py.ui.main_window.save_accounts") as mock_save_accounts,
+            patch("desktop_py.ui.main_window.fetch_switchable_accounts", side_effect=fake_fetch_switchable_accounts),
+        ):
+            window.import_accounts()
+
+        expected_url = (
+            "https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?"
+            "action=plugin_redirect&plugin_uin=1010&selected=2&token=321&lang=zh_CN"
+        )
+        self.assertEqual(window.accounts[0].feedback_url, expected_url)
+        self.assertEqual(seen_feedback_urls, [expected_url])
+        mock_save_accounts.assert_called()
+
     def test_save_current_settings_rejects_invalid_shared_profile_dir(self):
         window = MainWindow()
         self.addCleanup(window.close)
