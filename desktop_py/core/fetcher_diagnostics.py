@@ -52,6 +52,8 @@ def parse_deadline_text(deadline_text: str) -> datetime | None:
 
 
 def select_final_refund_outcome(outcomes: tuple[Any, ...]) -> Any:
+    if not outcomes:
+        raise ValueError("退款结果列表不能为空。")
     detailed: list[tuple[datetime, int, Any]] = []
     for index, outcome in enumerate(outcomes):
         parsed = parse_deadline_text(str(outcome.result.deadline_text))

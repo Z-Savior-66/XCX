@@ -254,8 +254,6 @@ def _process_single_account(
         progress(result)
     recycle_reason = runtime_recycle_reason(runtime, max_processed_count=batch_runtime_refresh_every)
     if recycle_reason and has_next_account:
-        if logger is not None:
-            logger(f"BATCH 运行时回收：{recycle_reason}")
         invalidate_group_runtime_fn(runtime, recycle_reason)
         runtime = acquire_group_runtime_fn(
             primary_account,

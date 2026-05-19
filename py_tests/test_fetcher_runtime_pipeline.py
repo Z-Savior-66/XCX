@@ -106,7 +106,7 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
             patch("desktop_py.core.fetcher.Path.exists", return_value=True),
             patch("desktop_py.core.fetcher.should_invalidate_runtime", return_value=False),
             patch(
-                "desktop_py.core.fetcher_pipeline.write_batch_diagnostic_index",
+                "desktop_py.core.fetcher_diagnostics.write_batch_diagnostic_index",
                 side_effect=lambda index: written_indexes.append(index.to_dict()),
             ),
         ):
@@ -149,7 +149,8 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
             ),
             patch("desktop_py.core.fetcher.Path.exists", return_value=True),
             patch(
-                "desktop_py.core.fetcher_pipeline.write_batch_diagnostic_index", side_effect=RuntimeError("写盘失败")
+                "desktop_py.core.fetcher_diagnostics.write_batch_diagnostic_index",
+                side_effect=RuntimeError("写盘失败"),
             ),
         ):
             mock_playwright.return_value.__enter__.return_value = object()
@@ -158,6 +159,48 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
 
         self.assertEqual([result.account_name for result in results], ["账号A"])
         self.assertTrue(any("写入批量诊断索引失败" in message for message in logs))
+
+    def test_fetch_accounts_batch_does_not_log_normal_runtime_recycle_message(self):
+        accounts = [
+            AccountConfig(name=f"账号{i}", state_path="storage/a.json", is_entry_account=False) for i in range(6)
+        ]
+        logs: list[str] = []
+
+        class FakeContext:
+            def new_page(self):
+                return object()
+
+            def storage_state(self, path=None, indexed_db=False):
+                return None
+
+            def close(self):
+                return None
+
+        fake_context = FakeContext()
+        fake_browser = type("FakeBrowser", (), {"close": lambda self: None})()
+
+        with (
+            patch("desktop_py.core.fetcher.sync_playwright") as mock_playwright,
+            patch("desktop_py.core.fetcher.create_browser_context", return_value=(fake_browser, fake_context)),
+            patch(
+                "desktop_py.core.fetcher._fetch_account_in_page",
+                side_effect=lambda page, context, account, logger, profile_dir, is_cancelled=None: FetchResult(
+                    account_name=account.name,
+                    ok=True,
+                    actual_account_name=account.name,
+                ),
+            ),
+            patch("desktop_py.core.fetcher.Path.exists", return_value=True),
+            patch("desktop_py.core.fetcher.should_invalidate_runtime", return_value=False),
+        ):
+            mock_playwright.return_value.__enter__.return_value = object()
+
+            results = fetch_accounts_batch(accounts, logger=logs.append)
+
+        self.assertEqual(len(results), 6)
+        self.assertFalse(
+            any("BATCH 运行时回收：批量抓取达到 5 个账号，主动重建运行时。" in message for message in logs)
+        )
 
     def test_fetch_accounts_batch_keeps_original_error_when_diagnostic_index_write_fails(self):
         accounts = [AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False)]
@@ -178,7 +221,8 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
             patch("desktop_py.core.fetcher.create_browser_context", side_effect=RuntimeError("抓取失败")),
             patch("desktop_py.core.fetcher.Path.exists", return_value=True),
             patch(
-                "desktop_py.core.fetcher_pipeline.write_batch_diagnostic_index", side_effect=RuntimeError("写盘失败")
+                "desktop_py.core.fetcher_diagnostics.write_batch_diagnostic_index",
+                side_effect=RuntimeError("写盘失败"),
             ),
         ):
             mock_playwright.return_value.__enter__.return_value = object()
@@ -1117,7 +1161,7 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
         account = AccountConfig(name="经典诗词摘抄", state_path="storage/a.json", is_entry_account=False)
         written_results: list[dict] = []
 
-        with patch("desktop_py.core.fetcher_pipeline.write_fetch_result") as write_result:
+        with patch("desktop_py.core.fetcher_diagnostics.write_fetch_result") as write_result:
             write_result.side_effect = lambda _account_name, _result, extra=None: written_results.append(extra or {})
             result = fetch_account_in_page_impl(
                 page,

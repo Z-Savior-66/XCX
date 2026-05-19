@@ -13,13 +13,14 @@ from desktop_py.core.fetcher_diagnostics import (
     default_transaction_complaint_outcome,
     log_fetch_success_summary,
     persist_fetch_run,
+    write_batch_diagnostic_index_safely,
+    write_fetch_result_payload,
 )
 from desktop_py.core.fetcher_manifest import (
     FetchRunManifest,
     add_fetch_evidence,
     fetch_step,
     start_fetch_run,
-    write_batch_diagnostic_index,
 )
 from desktop_py.core.fetcher_navigation import (
     collect_ios_refund_subject_captures,
@@ -40,7 +41,6 @@ from desktop_py.core.fetcher_support import (
     normalize_profile_dir,
 )
 from desktop_py.core.models import AccountConfig, FetchResult
-from desktop_py.core.store import write_fetch_result
 
 BATCH_RUNTIME_REFRESH_EVERY = 5
 
@@ -483,27 +483,6 @@ def _collect_collection_outcomes(
     return outcomes
 
 
-def _write_fetch_result_payload(
-    account_name: str,
-    result: FetchResult,
-    *,
-    result_extra: dict[str, Any],
-    notification_outcome: dict[str, Any],
-) -> None:
-    if result_extra:
-        write_fetch_result(account_name, result, extra=result_extra)
-    elif not notification_outcome.get("ok", True) and str(notification_outcome.get("summary", "") or "").strip():
-        write_fetch_result(account_name, result)
-
-
-def _write_batch_diagnostic_index_safely(index: Any, logger: Logger | None) -> None:
-    try:
-        write_batch_diagnostic_index(index)
-    except Exception as exc:
-        if logger is not None:
-            logger(f"BATCH 写入批量诊断索引失败：{exc}")
-
-
 def _fetch_account_in_page_with_context(
     page: Any,
     context: Any,
@@ -642,7 +621,7 @@ def _fetch_account_in_page_with_context(
             transaction_complaint_outcome=transaction_complaint_outcome,
             set_page_current_account_name_fn=set_page_current_account_name,
         )
-        _write_fetch_result_payload(
+        write_fetch_result_payload(
             account.name,
             result,
             result_extra=result_extra,
@@ -859,6 +838,6 @@ def fetch_accounts_batch_impl(
         invalidate_group_runtime_fn=invalidate_group_runtime_fn,
         update_runtime_current_account_name_fn=update_runtime_current_account_name_fn,
         should_invalidate_runtime_fn=should_invalidate_runtime_fn,
-        write_batch_diagnostic_index_safely_fn=_write_batch_diagnostic_index_safely,
+        write_batch_diagnostic_index_safely_fn=write_batch_diagnostic_index_safely,
         batch_runtime_refresh_every=batch_runtime_refresh_every,
     )
