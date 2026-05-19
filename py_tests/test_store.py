@@ -72,7 +72,6 @@ class StoreTestCase(unittest.TestCase):
 
         self.assertEqual(settings.feishu_webhook, "demo")
 
-
     def test_load_settings_keeps_persisted_login_wait_seconds(self):
         with TemporaryDirectory() as temp_dir:
             settings_path = Path(temp_dir) / "settings.json"
