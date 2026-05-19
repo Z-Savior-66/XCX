@@ -1,4 +1,3 @@
-from desktop_py.core.models import PendingNotification
 from py_tests.ui_test_support import (
     AccountConfig,
     FetchResult,
@@ -137,7 +136,7 @@ class UiNotificationTestCase(UiTestBase):
         self.assertEqual(accounts_by_name["导入账号D"].last_status, "")
         self.assertEqual(accounts_by_name["导入账号D"].last_note, "")
         mock_save_accounts.assert_called_once_with(window.accounts)
-        self.assertIn("已清理推送后的抓取状态", window.log_edit.toPlainText())
+        self.assertIn("飞书汇总已发送，并已清理推送后的抓取状态。", window.log_edit.toPlainText())
 
     def test_send_summary_does_not_clear_before_send_success(self):
         window = MainWindow()
@@ -161,7 +160,7 @@ class UiNotificationTestCase(UiTestBase):
         self.assertEqual(window.accounts[0].last_status, "抓取成功")
         self.assertEqual(window.accounts[0].last_note, "已完成详情页抓取。")
 
-    def test_send_summary_saves_pending_notification_when_send_fails(self):
+    def test_send_summary_raises_when_send_fails(self):
         window = MainWindow()
         self.addCleanup(window.close)
         window.accounts = [
@@ -178,7 +177,6 @@ class UiNotificationTestCase(UiTestBase):
 
         with (
             patch.object(window, "_run_thread") as mock_run_thread,
-            patch("desktop_py.ui.main_window.append_pending_notification") as mock_append,
         ):
             window._send_summary_with_webhook("https://example.com/hook")
             job = mock_run_thread.call_args.args[0]
@@ -186,47 +184,54 @@ class UiNotificationTestCase(UiTestBase):
                 with self.assertRaisesRegex(RuntimeError, "网络失败"):
                     job(lambda _message: None)
 
-        mock_append.assert_called_once()
-        self.assertIn("导入账号A", mock_append.call_args.args[0].content)
-
-    def test_resend_pending_notifications_sends_and_removes_queue_items(self):
+    def test_fetch_and_push_failure_allows_retry_via_send_summary(self):
         window = MainWindow()
         self.addCleanup(window.close)
-        window.webhook_edit.setText("https://open.feishu.cn/open-apis/bot/v2/hook/demo")
-        notification = PendingNotification(
-            id="abc123",
-            content="待补发内容",
-            created_at="2026-05-15 22:00:00",
-        )
+        window.accounts = [
+            AccountConfig(name="主账号", state_path="storage/shared.json", is_entry_account=True, enabled=True),
+            AccountConfig(
+                name="导入账号A",
+                state_path="storage/shared.json",
+                is_entry_account=False,
+                enabled=True,
+            ),
+        ]
+        window.webhook_edit.setText("https://example.com/hook")
+        batch_results = [
+            FetchResult(
+                account_name="导入账号A",
+                ok=True,
+                deadline_text="2026-04-20 11:42:31",
+                note="已完成详情页抓取。",
+            )
+        ]
 
-        with (
-            patch.object(window, "_run_thread") as mock_run_thread,
-            patch("desktop_py.ui.main_window.load_pending_notifications", return_value=[notification]),
-            patch("desktop_py.ui.main_window.remove_pending_notifications") as mock_remove,
-            patch("desktop_py.ui.main_window.send_feishu_text") as mock_send,
-        ):
-            window.resend_pending_notifications()
-            job = mock_run_thread.call_args.args[0]
-            sent_count = job(window.append_log)
+        with patch("desktop_py.ui.main_window.save_accounts"):
+            window._mark_batch_results(batch_results)
 
-        self.assertEqual(sent_count, 1)
-        mock_send.assert_called_once_with("https://open.feishu.cn/open-apis/bot/v2/hook/demo", "待补发内容")
-        mock_remove.assert_called_once_with(["abc123"])
-        self.assertIn("已补发飞书消息：abc123", window.log_edit.toPlainText())
+        with patch.object(window, "_run_thread") as mock_run_thread:
+            window._send_summary_with_webhook("https://example.com/hook", append_batch_log=True, results=batch_results)
+            failed_send_job = mock_run_thread.call_args.args[0]
+            with patch("desktop_py.ui.main_window.send_feishu_text", side_effect=RuntimeError("网络失败")):
+                with self.assertRaisesRegex(RuntimeError, "网络失败"):
+                    failed_send_job(lambda _message: None)
 
-    def test_resend_pending_notifications_reports_empty_queue(self):
-        window = MainWindow()
-        self.addCleanup(window.close)
-        window.webhook_edit.setText("https://open.feishu.cn/open-apis/bot/v2/hook/demo")
+        self.assertEqual(window.accounts[1].last_status, "抓取成功")
+        self.assertEqual(window.accounts[1].last_deadline, "2026-04-20 11:42:31")
+        self.assertEqual(window.accounts[1].last_note, "已完成详情页抓取。")
 
-        with (
-            patch.object(window, "_run_thread") as mock_run_thread,
-            patch("desktop_py.ui.main_window.load_pending_notifications", return_value=[]),
-        ):
-            window.resend_pending_notifications()
+        with patch.object(window, "_run_thread") as retry_run_thread:
+            window.send_summary()
 
-        mock_run_thread.assert_not_called()
-        self.assertIn("当前没有待补发飞书消息", window.log_edit.toPlainText())
+        retry_job = retry_run_thread.call_args.args[0]
+        captured = {}
+        with patch("desktop_py.ui.main_window.send_feishu_text") as mock_send:
+            retry_job(lambda _message: None)
+
+        self.assertTrue(mock_send.called)
+        retry_content = mock_send.call_args.args[1]
+        self.assertIn("导入账号A", retry_content)
+        self.assertIn("2026-04-20 11:42:31", retry_content)
 
     def test_auto_fetch_and_send_uses_fetch_job_and_progress_callback(self):
         window = MainWindow()
@@ -243,6 +248,18 @@ class UiNotificationTestCase(UiTestBase):
         mock_run_thread.assert_called_once()
         self.assertEqual(mock_run_thread.call_args.kwargs["on_progress"], window._mark_fetch_progress)
 
+    def test_auto_fetch_and_send_skips_when_background_task_exists(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window._threads.append(object())
+        window.webhook_edit.setText("https://open.feishu.cn/open-apis/bot/v2/hook/demo")
+
+        with patch.object(window, "_run_thread") as mock_run_thread:
+            window.auto_fetch_and_send()
+
+        mock_run_thread.assert_not_called()
+        self.assertIn("抓取并推送已跳过：当前仍有后台任务在执行。", window.log_edit.toPlainText())
+
     def test_auto_fetch_and_send_success_callback_only_sends_when_called(self):
         window = MainWindow()
         self.addCleanup(window.close)
@@ -257,8 +274,12 @@ class UiNotificationTestCase(UiTestBase):
 
         on_success = mock_run_thread.call_args.kwargs["on_success"]
         with patch.object(window, "_send_summary_with_webhook") as mock_send:
-            on_success([])
-        mock_send.assert_called_once()
+            on_success([FetchResult(account_name="导入账号A", ok=True, note="已完成详情页抓取。")])
+        mock_send.assert_called_once_with(
+            "https://open.feishu.cn/open-apis/bot/v2/hook/demo",
+            append_batch_log=True,
+            results=[FetchResult(account_name="导入账号A", ok=True, note="已完成详情页抓取。")],
+        )
 
     def test_auto_fetch_and_send_skips_summary_when_all_results_match_backend_entry_failure(self):
         window = MainWindow()
@@ -326,7 +347,6 @@ class UiNotificationTestCase(UiTestBase):
         self.assertIn("抓取并推送", buttons)
         self.assertIn("停止抓取", buttons)
         self.assertIn("登录续期", buttons)
-        self.assertIn("补发飞书", buttons)
         self.assertNotIn("抓取全部", buttons)
 
     def test_send_summary_button_moves_to_fetch_all_slot(self):

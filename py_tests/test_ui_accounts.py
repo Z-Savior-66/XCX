@@ -299,6 +299,32 @@ class UiAccountTestCase(UiTestBase):
         self.assertEqual(window.settings.login_wait_seconds, 45)
         self.assertEqual(mock_save_settings.call_args.args[0].login_wait_seconds, 45)
 
+    def test_account_action_logs_use_short_success_messages(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window.accounts = [
+            AccountConfig(name="主账号", state_path="storage/shared.json", is_entry_account=True),
+            AccountConfig(name="导入账号A", state_path="storage/shared.json", is_entry_account=False),
+            AccountConfig(name="导入账号B", state_path="storage/shared.json", is_entry_account=False),
+        ]
+        window.refresh_table()
+
+        with (
+            patch("desktop_py.ui.main_window.validate_shared_browser_profile_dir", return_value=""),
+            patch("desktop_py.ui.main_window.save_settings"),
+            patch("desktop_py.ui.main_window.save_accounts"),
+            patch("desktop_py.ui.main_window.MessageDialog.ask_confirm", return_value=True),
+        ):
+            window.save_current_settings()
+            window._merge_imported_accounts(window.accounts[0], ["导入账号C"])
+            window.table.selectRow(1)
+            window.delete_account()
+
+        log_text = window.log_edit.toPlainText()
+        self.assertIn("设置已保存。", log_text)
+        self.assertIn("已导入 1 个账号。", log_text)
+        self.assertIn("账号已删除。", log_text)
+
     def test_choose_profile_dir_creates_dedicated_child_dir(self):
         window = MainWindow()
         self.addCleanup(window.close)

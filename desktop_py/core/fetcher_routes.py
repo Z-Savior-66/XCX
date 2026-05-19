@@ -20,4 +20,3 @@ class FeedbackRoute:
     name: str
     step_label: str
     build_feedback_url_fn: FeedbackUrlBuilder
-    fallback_route: FeedbackRoute | None = None

@@ -148,7 +148,9 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
                 return_value=FetchResult(account_name="账号A", ok=True, actual_account_name="账号A"),
             ),
             patch("desktop_py.core.fetcher.Path.exists", return_value=True),
-            patch("desktop_py.core.fetcher_pipeline.write_batch_diagnostic_index", side_effect=RuntimeError("写盘失败")),
+            patch(
+                "desktop_py.core.fetcher_pipeline.write_batch_diagnostic_index", side_effect=RuntimeError("写盘失败")
+            ),
         ):
             mock_playwright.return_value.__enter__.return_value = object()
 
@@ -171,14 +173,13 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
             def close(self):
                 return None
 
-        fake_context = FakeContext()
-        fake_browser = type("FakeBrowser", (), {"close": lambda self: None})()
-
         with (
             patch("desktop_py.core.fetcher.sync_playwright") as mock_playwright,
             patch("desktop_py.core.fetcher.create_browser_context", side_effect=RuntimeError("抓取失败")),
             patch("desktop_py.core.fetcher.Path.exists", return_value=True),
-            patch("desktop_py.core.fetcher_pipeline.write_batch_diagnostic_index", side_effect=RuntimeError("写盘失败")),
+            patch(
+                "desktop_py.core.fetcher_pipeline.write_batch_diagnostic_index", side_effect=RuntimeError("写盘失败")
+            ),
         ):
             mock_playwright.return_value.__enter__.return_value = object()
 
@@ -681,6 +682,7 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
         frames = [FrameLocator("退款申请(0)"), FrameLocator("退款申请(1) 处理")]
         opened_urls: list[str] = []
         detail_feedback_urls: list[str] = []
+        empty_feedback_urls: list[str] = []
 
         def fake_open_feedback_page(current_page, **kwargs):
             url = kwargs["build_feedback_url_fn"](current_page.url)
@@ -699,6 +701,16 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
                 actual_account_name=kwargs["account"].name,
                 deadline_text="2026-05-18 10:00:00",
                 page_url=kwargs["feedback_url"],
+            )
+
+        def fake_build_empty_refund_result(**kwargs):
+            empty_feedback_urls.append(kwargs["feedback_url"])
+            return FetchResult(
+                account_name=kwargs["account"].name,
+                ok=True,
+                actual_account_name=kwargs["account"].name,
+                page_url=kwargs["feedback_url"],
+                note="当前账号无待处理申请。",
             )
 
         result = fetch_account_in_page_impl(
@@ -725,19 +737,18 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
             safe_page_content_fn=lambda _page: "<html></html>",
             is_empty_refund_list_fn=lambda list_text: "退款申请(0)" in list_text,
             confirm_empty_refund_list_fn=fake_confirm_empty_refund_list,
-            build_empty_refund_result_fn=lambda **_kwargs: (_ for _ in ()).throw(
-                AssertionError("iOS 退款问询非空时不应生成空结果")
-            ),
+            build_empty_refund_result_fn=fake_build_empty_refund_result,
             build_detail_result_fn=fake_build_detail_result,
             build_ios_refund_feedback_url_fn=lambda _page_url: "https://example.com/ios-refund",
         )
 
         self.assertTrue(result.ok)
         self.assertEqual(opened_urls, ["https://example.com/regular", "https://example.com/ios-refund"])
+        self.assertEqual(empty_feedback_urls, ["https://example.com/regular"])
         self.assertEqual(detail_feedback_urls, ["https://example.com/ios-refund"])
         self.assertEqual(result.deadline_text, "2026-05-18 10:00:00")
 
-    def test_fetch_account_in_page_does_not_check_ios_refund_when_regular_refund_has_detail(self):
+    def test_fetch_account_in_page_also_checks_ios_refund_when_regular_refund_has_detail(self):
         class DemoPage:
             def __init__(self):
                 self.url = "https://mp.weixin.qq.com/wxamp/index/index?token=1"
@@ -752,6 +763,7 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
         page = DemoPage()
         account = AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False)
         opened_urls: list[str] = []
+        frames = [FrameLocator(), FrameLocator()]
 
         def fake_open_feedback_page(current_page, **kwargs):
             url = kwargs["build_feedback_url_fn"](current_page.url)
@@ -778,13 +790,13 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
             open_feedback_page_fn=fake_open_feedback_page,
             build_feedback_url_fn=lambda _page_url: "https://example.com/regular",
             wait_for_iframe_ready_fn=lambda *_args, **_kwargs: True,
-            resolve_frame_locator_fn=lambda *_args, **_kwargs: FrameLocator(),
+            resolve_frame_locator_fn=lambda *_args, **_kwargs: frames.pop(0),
             business_iframe_selector_fn=lambda _page: "#js_iframe",
             safe_page_content_fn=lambda _page: "<html></html>",
             is_empty_refund_list_fn=lambda list_text: "退款申请(0)" in list_text,
             confirm_empty_refund_list_fn=lambda **kwargs: (False, kwargs["initial_text"]),
             build_empty_refund_result_fn=lambda **_kwargs: (_ for _ in ()).throw(
-                AssertionError("未成年退款非空时不应生成空结果")
+                AssertionError("详情场景不应生成空结果")
             ),
             build_detail_result_fn=lambda **kwargs: FetchResult(
                 account_name=kwargs["account"].name,
@@ -793,13 +805,246 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
                 deadline_text="2026-05-18 10:00:00",
                 page_url=kwargs["feedback_url"],
             ),
-            build_ios_refund_feedback_url_fn=lambda _page_url: (_ for _ in ()).throw(
-                AssertionError("未成年退款非空时不应打开 iOS 退款问询")
-            ),
+            build_ios_refund_feedback_url_fn=lambda _page_url: "https://example.com/ios-refund",
         )
 
         self.assertTrue(result.ok)
-        self.assertEqual(opened_urls, ["https://example.com/regular"])
+        self.assertEqual(opened_urls, ["https://example.com/regular", "https://example.com/ios-refund"])
+
+    def test_fetch_account_in_page_logs_grouped_success_summary_for_empty_refund_routes(self):
+        class DemoPage:
+            def __init__(self):
+                self.url = "https://mp.weixin.qq.com/wxamp/index/index?token=1"
+
+        class FrameLocator:
+            def __init__(self, text):
+                self._text = text
+
+            def locator(self, selector):
+                return FakeLocator(text=self._text)
+
+            def get_by_text(self, text, exact=False):
+                return FakeLocator(count=0)
+
+        page = DemoPage()
+        account = AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False)
+        logs: list[str] = []
+        frames = [FrameLocator("退款申请(0)"), FrameLocator("退款申请(0)")]
+
+        def fake_open_feedback_page(current_page, **kwargs):
+            url = kwargs["build_feedback_url_fn"](current_page.url)
+            current_page.url = url
+            return url
+
+        def fake_build_empty_refund_result(**kwargs):
+            return FetchResult(
+                account_name=kwargs["account"].name,
+                ok=True,
+                actual_account_name="账号A",
+                page_url=kwargs["feedback_url"],
+                note="当前账号无待处理申请。",
+            )
+
+        result = fetch_account_in_page_impl(
+            page,
+            object(),
+            account,
+            logs.append,
+            "",
+            None,
+            account_output_dir_fn=lambda _account_name: Path("output") / "账号A",
+            register_response_capture_fn=lambda _page, _capture: ([], lambda: None),
+            capture_response_payload_fn=lambda response: response,
+            resolve_bootstrap_url_fn=lambda _account, _output_dir: _account.home_url,
+            wait_for_url_contains_fn=lambda *_args, **_kwargs: True,
+            extract_current_account_name_fn=lambda _page: "账号A",
+            should_switch_for_account_fn=lambda _account, _current_account_name: False,
+            switch_to_account_fn=lambda *_args, **_kwargs: None,
+            log_fn=lambda logger, message: logger(message) if logger is not None else None,
+            open_feedback_page_fn=fake_open_feedback_page,
+            build_feedback_url_fn=lambda _page_url: "https://example.com/regular",
+            wait_for_iframe_ready_fn=lambda *_args, **_kwargs: True,
+            resolve_frame_locator_fn=lambda *_args, **_kwargs: frames.pop(0),
+            business_iframe_selector_fn=lambda _page: "#js_iframe",
+            safe_page_content_fn=lambda _page: "<html></html>",
+            fetch_notifications_fn=lambda *_args, **_kwargs: {
+                "ok": True,
+                "notifications": [],
+                "summary": "通知中心无目标未读消息。",
+                "page_url": "https://example.com/notice",
+            },
+            is_empty_refund_list_fn=lambda list_text: "退款申请(0)" in list_text,
+            confirm_empty_refund_list_fn=lambda **kwargs: (
+                "退款申请(0)" in kwargs["initial_text"],
+                kwargs["initial_text"],
+            ),
+            build_empty_refund_result_fn=fake_build_empty_refund_result,
+            build_detail_result_fn=lambda **_kwargs: (_ for _ in ()).throw(
+                AssertionError("空列表场景不应生成详情结果")
+            ),
+            build_ios_refund_feedback_url_fn=lambda _page_url: "https://example.com/ios-refund",
+        )
+
+        self.assertTrue(result.ok)
+        self.assertIn(
+            "账号 账号A 抓取成功：\n"
+            "1.通知中心无目标未读消息。\n"
+            "2.未成年退款申请截止时间内无待处理。\n"
+            "3.IOS退款问询当前无待处理申请。",
+            logs,
+        )
+
+    def test_fetch_account_in_page_logs_grouped_success_summary_for_regular_refund_detail(self):
+        class DemoPage:
+            def __init__(self):
+                self.url = "https://mp.weixin.qq.com/wxamp/index/index?token=1"
+
+        class FrameLocator:
+            def locator(self, selector):
+                return FakeLocator(text="退款申请(1) 处理")
+
+            def get_by_text(self, text, exact=False):
+                return FakeLocator(count=0)
+
+        page = DemoPage()
+        account = AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False)
+        logs: list[str] = []
+        frames = [FrameLocator(), FrameLocator()]
+
+        result = fetch_account_in_page_impl(
+            page,
+            object(),
+            account,
+            logs.append,
+            "",
+            None,
+            account_output_dir_fn=lambda _account_name: Path("output") / "账号A",
+            register_response_capture_fn=lambda _page, _capture: ([], lambda: None),
+            capture_response_payload_fn=lambda response: response,
+            resolve_bootstrap_url_fn=lambda _account, _output_dir: _account.home_url,
+            wait_for_url_contains_fn=lambda *_args, **_kwargs: True,
+            extract_current_account_name_fn=lambda _page: "账号A",
+            should_switch_for_account_fn=lambda _account, _current_account_name: False,
+            switch_to_account_fn=lambda *_args, **_kwargs: None,
+            log_fn=lambda logger, message: logger(message) if logger is not None else None,
+            open_feedback_page_fn=lambda _page, **kwargs: kwargs["build_feedback_url_fn"](
+                "https://example.com/current"
+            ),
+            build_feedback_url_fn=lambda page_url: page_url,
+            wait_for_iframe_ready_fn=lambda *_args, **_kwargs: True,
+            resolve_frame_locator_fn=lambda *_args, **_kwargs: frames.pop(0),
+            business_iframe_selector_fn=lambda _page: "#js_iframe",
+            safe_page_content_fn=lambda _page: "<html></html>",
+            fetch_notifications_fn=lambda *_args, **_kwargs: {
+                "ok": True,
+                "notifications": [{"title": "小程序微信认证年审通知"}],
+                "summary": "通知中心未读消息 1 条：小程序微信认证年审通知",
+                "page_url": "https://example.com/notice",
+            },
+            is_empty_refund_list_fn=lambda list_text: "退款申请(0)" in list_text,
+            confirm_empty_refund_list_fn=lambda **kwargs: (False, kwargs["initial_text"]),
+            build_empty_refund_result_fn=lambda **_kwargs: (_ for _ in ()).throw(
+                AssertionError("详情场景不应生成空结果")
+            ),
+            build_detail_result_fn=lambda **kwargs: FetchResult(
+                account_name=kwargs["account"].name,
+                ok=True,
+                actual_account_name=kwargs["account"].name,
+                deadline_text=(
+                    "2026-05-18 10:00:00"
+                    if kwargs["feedback_url"] == "https://example.com/current"
+                    else "2026-05-17 09:00:00"
+                ),
+                page_url=kwargs["feedback_url"],
+            ),
+            build_ios_refund_feedback_url_fn=lambda _page_url: "https://example.com/ios-refund",
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.deadline_text, "2026-05-17 09:00:00")
+        self.assertEqual(result.page_url, "https://example.com/ios-refund")
+        self.assertIn(
+            "账号 账号A 抓取成功：\n"
+            "1.通知中心未读消息 1 条：小程序微信认证年审通知。\n"
+            "2.未成年退款申请处理截止时间：2026-05-18 10:00:00。\n"
+            "3.IOS退款问询处理截止时间：2026-05-17 09:00:00。",
+            logs,
+        )
+
+    def test_fetch_account_in_page_logs_grouped_success_summary_for_notification_failure(self):
+        class DemoPage:
+            def __init__(self):
+                self.url = "https://mp.weixin.qq.com/wxamp/index/index?token=1"
+
+        class FrameLocator:
+            def __init__(self, text):
+                self._text = text
+
+            def locator(self, selector):
+                return FakeLocator(text=self._text)
+
+            def get_by_text(self, text, exact=False):
+                return FakeLocator(count=0)
+
+        page = DemoPage()
+        account = AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False)
+        logs: list[str] = []
+        frames = [FrameLocator("退款申请(0)"), FrameLocator("退款申请(0)")]
+
+        result = fetch_account_in_page_impl(
+            page,
+            object(),
+            account,
+            logs.append,
+            "",
+            None,
+            account_output_dir_fn=lambda _account_name: Path("output") / "账号A",
+            register_response_capture_fn=lambda _page, _capture: ([], lambda: None),
+            capture_response_payload_fn=lambda response: response,
+            resolve_bootstrap_url_fn=lambda _account, _output_dir: _account.home_url,
+            wait_for_url_contains_fn=lambda *_args, **_kwargs: True,
+            extract_current_account_name_fn=lambda _page: "账号A",
+            should_switch_for_account_fn=lambda _account, _current_account_name: False,
+            switch_to_account_fn=lambda *_args, **_kwargs: None,
+            log_fn=lambda logger, message: logger(message) if logger is not None else None,
+            open_feedback_page_fn=lambda _page, **_kwargs: "https://example.com/regular",
+            build_feedback_url_fn=lambda _page_url: "https://example.com/regular",
+            wait_for_iframe_ready_fn=lambda *_args, **_kwargs: True,
+            resolve_frame_locator_fn=lambda *_args, **_kwargs: frames.pop(0),
+            business_iframe_selector_fn=lambda _page: "#js_iframe",
+            safe_page_content_fn=lambda _page: "<html></html>",
+            fetch_notifications_fn=lambda *_args, **_kwargs: {
+                "ok": False,
+                "notifications": [],
+                "summary": "通知中心抓取失败：未找到通知中心入口。",
+                "page_url": "https://example.com/notice",
+            },
+            is_empty_refund_list_fn=lambda list_text: "退款申请(0)" in list_text,
+            confirm_empty_refund_list_fn=lambda **kwargs: (
+                "退款申请(0)" in kwargs["initial_text"],
+                kwargs["initial_text"],
+            ),
+            build_empty_refund_result_fn=lambda **kwargs: FetchResult(
+                account_name=kwargs["account"].name,
+                ok=True,
+                actual_account_name=kwargs["account"].name,
+                page_url=kwargs["feedback_url"],
+                note="当前账号无待处理申请。",
+            ),
+            build_detail_result_fn=lambda **_kwargs: (_ for _ in ()).throw(
+                AssertionError("空列表场景不应生成详情结果")
+            ),
+            build_ios_refund_feedback_url_fn=lambda _page_url: "https://example.com/ios-refund",
+        )
+
+        self.assertTrue(result.ok)
+        self.assertIn(
+            "账号 账号A 抓取成功：\n"
+            "1.通知中心抓取失败：未找到通知中心入口。\n"
+            "2.未成年退款申请截止时间内无待处理。\n"
+            "3.IOS退款问询当前无待处理申请。",
+            logs,
+        )
 
     def test_fetch_account_in_page_appends_notification_summary(self):
         class DemoPage:

@@ -68,19 +68,19 @@ class AccountPresenterTestCase(unittest.TestCase):
         self.assertEqual(deadline_tooltip_text(account), account.last_note)
         self.assertEqual(display_result_text(account), "失败")
 
-    def test_apply_fetch_result_treats_no_deadline_note_as_failure(self):
+    def test_apply_fetch_result_treats_no_deadline_note_as_success(self):
         account = AccountConfig(name="导入账号A", state_path="storage/shared.json", is_entry_account=False)
         result = FetchResult(
             account_name="导入账号A",
             ok=False,
-            note="未在详情页文本中提取到处理截止时间。",
+            note="截止时间内无待处理",
         )
 
         apply_fetch_result(account, result)
 
-        self.assertEqual(account.last_status, "抓取失败")
-        self.assertEqual(display_deadline_text(account), "未在详情页文本中提取到处理截止时间。")
-        self.assertEqual(display_result_text(account), "失败")
+        self.assertEqual(account.last_status, "抓取成功")
+        self.assertEqual(display_deadline_text(account), "截止时间内无待处理")
+        self.assertEqual(display_result_text(account), "完成")
 
     def test_apply_fetch_result_treats_no_business_page_note_as_success(self):
         account = AccountConfig(name="导入账号A", state_path="storage/shared.json", is_entry_account=False)

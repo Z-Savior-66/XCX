@@ -25,17 +25,14 @@ from desktop_py.core.fetcher import (
 )
 from desktop_py.core.fetcher_runtime import close_all_group_runtimes
 from desktop_py.core.models import AccountConfig, AppSettings, FetchResult
-from desktop_py.core.notifier import build_pending_notification, build_summary, send_feishu_text
+from desktop_py.core.notifier import build_summary, send_feishu_text
 from desktop_py.core.store import (
-    append_pending_notification,
     cleanup_account_diagnostics,
     default_state_path,
     ensure_runtime_dirs,
     load_accounts,
-    load_pending_notifications,
     load_settings,
     prepare_shared_browser_profile_dir,
-    remove_pending_notifications,
     save_accounts,
     save_settings,
     validate_shared_browser_profile_dir,
@@ -138,9 +135,6 @@ from desktop_py.ui.main_window_actions_impl import (
 )
 from desktop_py.ui.main_window_actions_impl import (
     renew_selected as renew_selected_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    resend_pending_notifications as resend_pending_notifications_impl,
 )
 from desktop_py.ui.main_window_actions_impl import (
     reset_current_main_account_name as reset_current_main_account_name_impl,
@@ -294,7 +288,6 @@ class MainWindow(QMainWindow):
         self.validate_button: QPushButton | None = None
         self.fetch_selected_button: QPushButton | None = None
         self.send_summary_button: QPushButton | None = None
-        self.resend_pending_button: QPushButton | None = None
         self.stop_fetch_button: QPushButton | None = None
         self.delete_button: QPushButton | None = None
         self.browse_profile_button: QPushButton | None = None
@@ -606,26 +599,22 @@ class MainWindow(QMainWindow):
     def send_summary(self) -> None:
         send_summary_impl(self)
 
-    def _send_summary_with_webhook(self, webhook: str, append_batch_log: bool = False) -> None:
+    def _send_summary_with_webhook(
+        self,
+        webhook: str,
+        append_batch_log: bool = False,
+        results: list[FetchResult] | None = None,
+    ) -> None:
         send_summary_with_webhook_impl(
             self,
             webhook,
             append_batch_log=append_batch_log,
+            results=results,
             build_summary_fn=lambda results: build_summary(results),
             send_feishu_text_fn=lambda target_webhook, content: send_feishu_text(target_webhook, content),
-            build_pending_notification_fn=build_pending_notification,
-            append_pending_notification_fn=append_pending_notification,
             fetch_result_cls=FetchResult,
             actual_account_prefix=ACTUAL_ACCOUNT_PREFIX,
             save_accounts_fn=save_accounts,
-        )
-
-    def resend_pending_notifications(self) -> None:
-        resend_pending_notifications_impl(
-            self,
-            send_feishu_text_fn=lambda target_webhook, content: send_feishu_text(target_webhook, content),
-            load_pending_notifications_fn=load_pending_notifications,
-            remove_pending_notifications_fn=remove_pending_notifications,
         )
 
     def _actual_account_name_from_note(self, note: str) -> str:

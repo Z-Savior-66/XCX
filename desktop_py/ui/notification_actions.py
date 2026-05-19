@@ -4,15 +4,15 @@ from typing import Any
 
 from desktop_py.core.account_status import AUTO_PUSH_SKIP_NOTE
 from desktop_py.core.fetch_summary_service import (
-    resend_pending_notifications as resend_pending_notifications_core,
-)
-from desktop_py.core.fetch_summary_service import (
-    send_summary_with_pending_notification,
+    send_summary as send_summary_service,
 )
 from desktop_py.ui.fetch_actions import _enabled_imported_accounts
 
 
 def auto_fetch_and_send(window: Any) -> None:
+    if window._threads:
+        window.append_log("抓取并推送已跳过：当前仍有后台任务在执行。")
+        return
     webhook = window.webhook_edit.text().strip()
     window.settings.feishu_webhook = webhook
     if not webhook:
@@ -40,7 +40,7 @@ def _handle_auto_summary_after_fetch(window: Any, webhook: str, results: list) -
         window.append_log("批量抓取已完成。")
         window.append_log("自动抓取推送已跳过：当前登录态未进入后台页，且没有可复用的历史反馈页地址。")
         return
-    window._send_summary_with_webhook(webhook, append_batch_log=True)
+    window._send_summary_with_webhook(webhook, append_batch_log=True, results=results)
 
 
 def send_summary(window: Any) -> None:
@@ -56,40 +56,39 @@ def send_summary_with_webhook(
     window: Any,
     webhook: str,
     append_batch_log: bool = False,
+    results: list | None = None,
     *,
     build_summary_fn: Any,
     send_feishu_text_fn: Any,
-    build_pending_notification_fn: Any,
-    append_pending_notification_fn: Any,
     fetch_result_cls: Any,
     actual_account_prefix: str,
     save_accounts_fn: Any,
 ) -> None:
     if append_batch_log:
         window.append_log("批量抓取已完成。")
-    results = [
-        fetch_result_cls(
-            account_name=account.name,
-            ok=account.last_status == "抓取成功",
-            actual_account_name=actual_account_name_from_note(
-                account.last_note, actual_account_prefix=actual_account_prefix
-            ),
-            deadline_text=account.last_deadline,
-            note=account.last_note,
-            page_url=account.home_url,
-        )
-        for account in window.accounts
-        if account.enabled
-    ]
+    summary_results = results
+    if summary_results is None:
+        summary_results = [
+            fetch_result_cls(
+                account_name=account.name,
+                ok=account.last_status == "抓取成功",
+                actual_account_name=actual_account_name_from_note(
+                    account.last_note, actual_account_prefix=actual_account_prefix
+                ),
+                deadline_text=account.last_deadline,
+                note=account.last_note,
+                page_url=account.home_url,
+            )
+            for account in window.accounts
+            if account.enabled
+        ]
 
     def send_job(_log: Any) -> None:
-        send_summary_with_pending_notification(
+        send_summary_service(
             webhook,
-            results,
+            summary_results,
             build_summary_fn=build_summary_fn,
             send_feishu_text_fn=send_feishu_text_fn,
-            build_pending_notification_fn=build_pending_notification_fn,
-            append_pending_notification_fn=append_pending_notification_fn,
         )
 
     window._run_thread(
@@ -112,8 +111,7 @@ def clear_pushed_fetch_state(window: Any, *, save_accounts_fn: Any) -> None:
         save_accounts_fn(window.accounts)
     except Exception as exc:
         window.append_log(f"清理推送后状态失败：{exc}")
-    window.append_log("飞书汇总已发送。")
-    window.append_log("已清理推送后的抓取状态。")
+    window.append_log("飞书汇总已发送，并已清理推送后的抓取状态。")
 
 
 def actual_account_name_from_note(note: str, *, actual_account_prefix: str) -> str:
@@ -122,38 +120,3 @@ def actual_account_name_from_note(note: str, *, actual_account_prefix: str) -> s
         if text.startswith(actual_account_prefix):
             return text.removeprefix(actual_account_prefix).strip()
     return ""
-
-
-def resend_pending_notifications(
-    window: Any,
-    *,
-    send_feishu_text_fn: Any,
-    load_pending_notifications_fn: Any,
-    remove_pending_notifications_fn: Any,
-) -> None:
-    webhook = window.webhook_edit.text().strip()
-    window.settings.feishu_webhook = webhook
-    if not webhook:
-        window._show_warning("提示", "请先填写飞书 Webhook。")
-        return
-
-    notifications = load_pending_notifications_fn()
-    if not notifications:
-        window.append_log("当前没有待补发飞书消息。")
-        return
-
-    def resend_job(log: Any) -> int:
-        sent_count = resend_pending_notifications_core(
-            webhook,
-            notifications,
-            send_feishu_text_fn=send_feishu_text_fn,
-            remove_pending_notifications_fn=remove_pending_notifications_fn,
-        )
-        for notification in notifications:
-            log(f"已补发飞书消息：{notification.id}")
-        return sent_count
-
-    window._run_thread(
-        resend_job,
-        on_success=lambda sent_count: window.append_log(f"飞书补发完成，已发送 {sent_count} 条。"),
-    )

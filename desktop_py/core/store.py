@@ -10,7 +10,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, cast
 
-from desktop_py.core.models import AccountConfig, AppSettings, FetchResult, PendingNotification
+from desktop_py.core.models import AccountConfig, AppSettings, FetchResult
 
 APP_NAME = "小程序工具"
 SHARED_BROWSER_PROFILE_DIR_NAME = "browser_profile"
@@ -45,7 +45,6 @@ STORAGE_DIR = PROJECT_ROOT / "storage"
 PY_OUTPUT_DIR = PROJECT_ROOT / "output" / "desktop_py"
 ACCOUNTS_FILE = DATA_DIR / "accounts.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
-PENDING_NOTIFICATIONS_FILE = DATA_DIR / "pending_notifications.json"
 RUNNING_INSTANCE_LOCK_FILE = DATA_DIR / "app.lock"
 DIAGNOSTIC_INDEX_FILE = PY_OUTPUT_DIR / "diagnostic_index.json"
 DIAGNOSTIC_ARTIFACT_NAMES = frozenset(
@@ -315,44 +314,6 @@ def load_settings() -> AppSettings:
 def save_settings(settings: AppSettings) -> None:
     ensure_runtime_dirs()
     _write_text_atomic(SETTINGS_FILE, json.dumps(settings.to_dict(), ensure_ascii=False, indent=2) + "\n")
-
-
-def load_pending_notifications() -> list[PendingNotification]:
-    ensure_runtime_dirs()
-    if not PENDING_NOTIFICATIONS_FILE.exists():
-        return []
-    data = cast(list[dict[str, Any]], _read_json_file_or_recover(PENDING_NOTIFICATIONS_FILE, "[]\n"))
-    allowed = {item.name for item in fields(PendingNotification)}
-    return [PendingNotification(**{key: value for key, value in item.items() if key in allowed}) for item in data]
-
-
-def save_pending_notifications(notifications: list[PendingNotification]) -> None:
-    ensure_runtime_dirs()
-    _write_text_atomic(
-        PENDING_NOTIFICATIONS_FILE,
-        json.dumps([notification.to_dict() for notification in notifications], ensure_ascii=False, indent=2) + "\n",
-    )
-
-
-def append_pending_notification(notification: PendingNotification) -> bool:
-    notifications = load_pending_notifications()
-    if any(item.id == notification.id for item in notifications):
-        return False
-    notifications.append(notification)
-    save_pending_notifications(notifications)
-    return True
-
-
-def remove_pending_notifications(notification_ids: list[str]) -> int:
-    if not notification_ids:
-        return 0
-    target_ids = set(notification_ids)
-    notifications = load_pending_notifications()
-    remaining = [notification for notification in notifications if notification.id not in target_ids]
-    removed = len(notifications) - len(remaining)
-    if removed:
-        save_pending_notifications(remaining)
-    return removed
 
 
 def account_state_path(name: str) -> str:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -48,6 +49,15 @@ class _RefundFeedbackFlow:
     captures: list[Any]
     feedback_url: str
     frame_locator: Any
+    step_label: str
+    empty_route_labels: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _RefundRouteOutcome:
+    route: FeedbackRoute
+    flow: _RefundFeedbackFlow
+    result: FetchResult
 
 
 def _prepare_account_session_for_fetch(
@@ -126,6 +136,145 @@ def _wait_for_timeout(current_page: Any, wait_ms: int, _cancelled: CancelCheck |
     current_page.wait_for_timeout(wait_ms)
 
 
+def _find_business_frame(page: Any) -> Any | None:
+    try:
+        frames = list(getattr(page, "frames", []) or [])
+    except Exception:
+        return None
+    for frame in frames:
+        try:
+            if str(getattr(frame, "name", "") or "").strip() == "js_iframe":
+                return frame
+            frame_url = str(getattr(frame, "url", "") or "")
+        except Exception:
+            continue
+        if "gamemp.weixin.qq.com/minigame/index.html" in frame_url:
+            return frame
+    return None
+
+
+def _click_first_visible_button(frame: Any) -> bool:
+    try:
+        buttons = frame.locator("button")
+        button_count = int(buttons.count())
+    except Exception:
+        return False
+    for index in range(button_count):
+        button = buttons.nth(index)
+        try:
+            is_visible = bool(
+                button.evaluate(
+                    """
+                    (element) => {
+                        const style = window.getComputedStyle(element);
+                        const text = (element.innerText || "").trim();
+                        return (
+                            style.display !== "none"
+                            && style.visibility !== "hidden"
+                            && element.offsetParent !== null
+                            && text.length > 0
+                        );
+                    }
+                    """
+                )
+            )
+        except Exception:
+            continue
+        if not is_visible:
+            continue
+        button.click(timeout=10000)
+        return True
+    return False
+
+
+def _collect_ios_refund_subject_captures(
+    *,
+    page: Any,
+    captures: list[Any],
+    logger: Logger | None,
+    log_fn: LogFn,
+    wait_or_cancel_fn: Callable[..., Any],
+    fetch_paginated_refund_list_captures_fn: Callable[..., list[Any]] | None,
+    is_cancelled: CancelCheck | None,
+) -> list[Any]:
+    frame = _find_business_frame(page)
+    if frame is None:
+        log_fn(logger, "iOS退款问询未定位到业务 Frame，跳过主体切换。")
+        return captures
+
+    try:
+        frame.wait_for_selector(".drop-selected", timeout=10000)
+    except Exception:
+        return captures
+
+    working_captures = list(captures)
+    if callable(fetch_paginated_refund_list_captures_fn):
+        working_captures = fetch_paginated_refund_list_captures_fn(
+            page=page,
+            captures=working_captures,
+            logger=logger,
+            log_fn=log_fn,
+        )
+
+    try:
+        subject_options = frame.eval_on_selector_all(
+            ".dropdown-switch-item",
+            """(elements) => elements.map((element) => ({
+                title: (element.getAttribute("title") || "").trim(),
+                text: (element.textContent || "").trim(),
+            }))""",
+        )
+        current_subject = str(frame.eval_on_selector(".drop-selected", "element => element.value || ''") or "").strip()
+    except Exception:
+        return working_captures
+
+    if len(subject_options) <= 1:
+        return working_captures
+
+    expect_response = getattr(page, "expect_response", None)
+    for index, option in enumerate(subject_options):
+        title = str(option.get("title") or option.get("text") or "").strip()
+        if not title or title == current_subject:
+            continue
+        action_started = False
+
+        def trigger_search() -> None:
+            nonlocal action_started
+            action_started = True
+            frame.locator(".dropdown_switch").click(timeout=10000)
+            frame.wait_for_timeout(300)
+            frame.locator(".dropdown_data_item").nth(index).click(timeout=10000)
+            frame.wait_for_timeout(300)
+            if not _click_first_visible_button(frame):
+                raise FetchError("iOS退款问询页面未找到可点击的搜索按钮。")
+
+        if callable(expect_response):
+            try:
+                with expect_response(
+                    lambda response: "getiaprefundlist" in str(getattr(response, "url", "") or "").lower(),
+                    timeout=10000,
+                ):
+                    trigger_search()
+            except Exception:
+                if not action_started:
+                    trigger_search()
+        else:
+            trigger_search()
+
+        wait_or_cancel_fn(page, 1200, is_cancelled)
+        working_captures = list(captures)
+        if callable(fetch_paginated_refund_list_captures_fn):
+            working_captures = fetch_paginated_refund_list_captures_fn(
+                page=page,
+                captures=working_captures,
+                logger=logger,
+                log_fn=log_fn,
+            )
+        current_subject = title
+
+    return working_captures
+
+
 def _recover_timeout_page_if_needed(
     page: Any,
     *,
@@ -194,21 +343,6 @@ def _collect_refund_feedback_flow(
             is_cancelled=is_cancelled,
         )
     current_captures = captures[feedback_capture_start:]
-    if callable(fetch_paginated_refund_list_captures_fn):
-        with fetch_step(manifest, f"补抓{step_label}分页"):
-            current_captures = fetch_paginated_refund_list_captures_fn(
-                page=page,
-                captures=current_captures,
-                logger=logger,
-                log_fn=log_fn,
-            )
-    add_fetch_evidence(
-        manifest,
-        kind="network",
-        label=f"{step_label}响应",
-        summary=f"捕获 {len(current_captures)} 条目标响应",
-        metadata={"capture_count": len(current_captures)},
-    )
     with fetch_step(manifest, f"定位{step_label} iframe"):
         frame_locator = resolve_frame_locator_fn(
             page,
@@ -217,6 +351,35 @@ def _collect_refund_feedback_flow(
             safe_page_content_fn=safe_page_content_fn,
         )
         list_text = frame_locator.locator("body").text_content(timeout=15000) or ""
+
+    if step_label == "iOS退款问询":
+        with fetch_step(manifest, f"切换{step_label}主体并查询"):
+            current_captures = _collect_ios_refund_subject_captures(
+                page=page,
+                captures=current_captures,
+                logger=logger,
+                log_fn=log_fn,
+                wait_or_cancel_fn=_wait_for_timeout,
+                fetch_paginated_refund_list_captures_fn=fetch_paginated_refund_list_captures_fn,
+                is_cancelled=is_cancelled,
+            )
+    elif callable(fetch_paginated_refund_list_captures_fn):
+        with fetch_step(manifest, f"补抓{step_label}分页"):
+            current_captures = fetch_paginated_refund_list_captures_fn(
+                page=page,
+                captures=current_captures,
+                logger=logger,
+                log_fn=log_fn,
+            )
+    list_text = frame_locator.locator("body").text_content(timeout=15000) or ""
+
+    add_fetch_evidence(
+        manifest,
+        kind="network",
+        label=f"{step_label}响应",
+        summary=f"捕获 {len(current_captures)} 条目标响应",
+        metadata={"capture_count": len(current_captures)},
+    )
 
     with fetch_step(manifest, f"确认{step_label}列表状态"):
         empty_confirmed, confirmed_list_text = confirm_empty_refund_list_fn(
@@ -234,6 +397,8 @@ def _collect_refund_feedback_flow(
         captures=current_captures,
         feedback_url=feedback_url,
         frame_locator=frame_locator,
+        step_label=step_label,
+        empty_route_labels=(step_label,) if empty_confirmed else (),
     )
 
 
@@ -251,23 +416,26 @@ def _build_collection_routes(
     return tuple(routes)
 
 
-def _build_feedback_route(
+def _build_feedback_routes(
     build_feedback_url_fn: Callable[..., str],
     build_ios_refund_feedback_url_fn: Callable[..., str] | None,
-) -> FeedbackRoute:
-    fallback_route = None
-    if callable(build_ios_refund_feedback_url_fn):
-        fallback_route = FeedbackRoute(
-            name="iOS退款问询",
-            step_label="iOS退款问询",
-            build_feedback_url_fn=build_ios_refund_feedback_url_fn,
+) -> tuple[FeedbackRoute, ...]:
+    routes = [
+        FeedbackRoute(
+            name="退款反馈页",
+            step_label="退款反馈页",
+            build_feedback_url_fn=build_feedback_url_fn,
         )
-    return FeedbackRoute(
-        name="退款反馈页",
-        step_label="退款反馈页",
-        build_feedback_url_fn=build_feedback_url_fn,
-        fallback_route=fallback_route,
-    )
+    ]
+    if callable(build_ios_refund_feedback_url_fn):
+        routes.append(
+            FeedbackRoute(
+                name="iOS退款问询",
+                step_label="iOS退款问询",
+                build_feedback_url_fn=build_ios_refund_feedback_url_fn,
+            )
+        )
+    return tuple(routes)
 
 
 def _collect_collection_route(
@@ -316,7 +484,7 @@ def _collect_feedback_route_flow(
     confirm_empty_refund_list_fn: Callable[..., tuple[bool, str]],
     is_cancelled: CancelCheck | None,
 ) -> _RefundFeedbackFlow:
-    flow = _collect_refund_feedback_flow(
+    return _collect_refund_feedback_flow(
         manifest=manifest,
         page=page,
         account=account,
@@ -336,27 +504,130 @@ def _collect_feedback_route_flow(
         is_cancelled=is_cancelled,
         step_label=route.step_label,
     )
-    if flow.empty_confirmed and route.fallback_route is not None:
-        return _collect_feedback_route_flow(
-            manifest,
-            route.fallback_route,
-            page=page,
-            account=account,
-            output_dir=output_dir,
-            captures=captures,
-            logger=logger,
-            log_fn=log_fn,
-            open_feedback_page_fn=open_feedback_page_fn,
-            wait_for_iframe_ready_fn=wait_for_iframe_ready_fn,
-            resolve_frame_locator_fn=resolve_frame_locator_fn,
-            business_iframe_selector_fn=business_iframe_selector_fn,
-            safe_page_content_fn=safe_page_content_fn,
-            fetch_paginated_refund_list_captures_fn=fetch_paginated_refund_list_captures_fn,
-            is_empty_refund_list_fn=is_empty_refund_list_fn,
-            confirm_empty_refund_list_fn=confirm_empty_refund_list_fn,
-            is_cancelled=is_cancelled,
-        )
-    return flow
+
+
+def _build_refund_route_result(
+    *,
+    manifest: FetchRunManifest,
+    pipeline_context: PipelineContext,
+    page: Any,
+    context: Any,
+    account: AccountConfig,
+    output_dir: Path,
+    profile_dir: str,
+    route: FeedbackRoute,
+    flow: _RefundFeedbackFlow,
+    logger: Logger | None,
+    is_cancelled: CancelCheck | None,
+) -> _RefundRouteOutcome:
+    if flow.empty_confirmed:
+        with fetch_step(manifest, f"生成{route.step_label}空列表采集结果"):
+            result = pipeline_context.build_empty_refund_result_fn(
+                page=page,
+                context=context,
+                account=account,
+                output_dir=output_dir,
+                frame_locator=flow.frame_locator,
+                list_text=flow.confirmed_list_text,
+                captures=flow.captures,
+                feedback_url=flow.feedback_url,
+                profile_dir=profile_dir,
+                logger=logger,
+                safe_page_content_fn=pipeline_context.safe_page_content_fn,
+                extract_current_account_name_fn=pipeline_context.extract_current_account_name_fn,
+                is_cancelled=is_cancelled,
+            )
+    else:
+        with fetch_step(manifest, f"生成{route.step_label}详情页采集结果"):
+            result = pipeline_context.build_detail_result_fn(
+                page=page,
+                context=context,
+                account=account,
+                output_dir=output_dir,
+                frame_locator=flow.frame_locator,
+                captures=flow.captures,
+                feedback_url=flow.feedback_url,
+                profile_dir=profile_dir,
+                logger=logger,
+                safe_page_content_fn=pipeline_context.safe_page_content_fn,
+                extract_current_account_name_fn=pipeline_context.extract_current_account_name_fn,
+            )
+    return _RefundRouteOutcome(route=route, flow=flow, result=result)
+
+
+def _parse_deadline_text(deadline_text: str) -> datetime | None:
+    value = deadline_text.strip()
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        try:
+            return datetime.strptime(value, "%Y-%m-%d %H:%M")
+        except ValueError:
+            return None
+
+
+def _select_final_refund_outcome(outcomes: tuple[_RefundRouteOutcome, ...]) -> _RefundRouteOutcome:
+    detailed: list[tuple[datetime, int, _RefundRouteOutcome]] = []
+    for index, outcome in enumerate(outcomes):
+        parsed = _parse_deadline_text(outcome.result.deadline_text)
+        if parsed is not None:
+            detailed.append((parsed, index, outcome))
+    if detailed:
+        detailed.sort(key=lambda item: (item[0], item[1]))
+        return detailed[0][2]
+    return outcomes[0]
+
+
+def _ensure_sentence(text: str) -> str:
+    value = text.strip()
+    if not value:
+        return ""
+    if value.endswith(("。", "！", "？", ".", "!", "?")):
+        return value
+    return f"{value}。"
+
+
+def _build_success_log_lines(
+    *,
+    notification_outcome: dict[str, Any],
+    refund_outcomes: tuple[_RefundRouteOutcome, ...],
+) -> list[str]:
+    lines: list[str] = []
+    notification_summary = str(notification_outcome.get("summary", "") or "").strip()
+    if notification_summary:
+        lines.append(_ensure_sentence(notification_summary))
+    for outcome in refund_outcomes:
+        if outcome.route.step_label == "退款反馈页":
+            if outcome.result.deadline_text.strip():
+                lines.append(f"未成年退款申请处理截止时间：{outcome.result.deadline_text.strip()}。")
+            else:
+                lines.append("未成年退款申请截止时间内无待处理。")
+        elif outcome.route.step_label == "iOS退款问询":
+            if outcome.result.deadline_text.strip():
+                lines.append(f"IOS退款问询处理截止时间：{outcome.result.deadline_text.strip()}。")
+            else:
+                lines.append("IOS退款问询当前无待处理申请。")
+    return lines
+
+
+def _log_fetch_success_summary(
+    *,
+    account: AccountConfig,
+    logger: Logger | None,
+    log_fn: LogFn,
+    notification_outcome: dict[str, Any],
+    refund_outcomes: tuple[_RefundRouteOutcome, ...],
+) -> None:
+    lines = _build_success_log_lines(
+        notification_outcome=notification_outcome,
+        refund_outcomes=refund_outcomes,
+    )
+    if not lines:
+        return
+    summary = "\n".join(f"{index}.{line}" for index, line in enumerate(lines, start=1))
+    log_fn(logger, f"账号 {account.name} 抓取成功：\n{summary}")
 
 
 def _default_notification_outcome() -> dict[str, Any]:
@@ -427,7 +698,7 @@ def _build_pipeline_context(
         build_empty_refund_result_fn=build_empty_refund_result_fn,
         build_detail_result_fn=build_detail_result_fn,
         collection_routes=_build_collection_routes(fetch_notifications_fn, fetch_transaction_complaints_fn),
-        feedback_route=_build_feedback_route(build_feedback_url_fn, build_ios_refund_feedback_url_fn),
+        feedback_routes=_build_feedback_routes(build_feedback_url_fn, build_ios_refund_feedback_url_fn),
     )
 
 
@@ -467,7 +738,7 @@ def _compose_fetch_result(
     account: AccountConfig,
     output_dir: Path,
     profile_dir: str,
-    refund_flow: _RefundFeedbackFlow | None,
+    refund_outcomes: tuple[_RefundRouteOutcome, ...],
     notification_outcome: dict[str, Any],
     transaction_complaint_outcome: dict[str, Any],
     logger: Logger | None,
@@ -482,39 +753,8 @@ def _compose_fetch_result(
                 page_url=str(transaction_complaint_outcome.get("page_url", "") or ""),
             )
     else:
-        assert refund_flow is not None
-        if refund_flow.empty_confirmed:
-            with fetch_step(manifest, "生成空列表采集结果"):
-                result = pipeline_context.build_empty_refund_result_fn(
-                    page=page,
-                    context=context,
-                    account=account,
-                    output_dir=output_dir,
-                    frame_locator=refund_flow.frame_locator,
-                    list_text=refund_flow.confirmed_list_text,
-                    captures=refund_flow.captures,
-                    feedback_url=refund_flow.feedback_url,
-                    profile_dir=profile_dir,
-                    logger=logger,
-                    safe_page_content_fn=pipeline_context.safe_page_content_fn,
-                    extract_current_account_name_fn=pipeline_context.extract_current_account_name_fn,
-                    is_cancelled=is_cancelled,
-                )
-        else:
-            with fetch_step(manifest, "生成详情页采集结果"):
-                result = pipeline_context.build_detail_result_fn(
-                    page=page,
-                    context=context,
-                    account=account,
-                    output_dir=output_dir,
-                    frame_locator=refund_flow.frame_locator,
-                    captures=refund_flow.captures,
-                    feedback_url=refund_flow.feedback_url,
-                    profile_dir=profile_dir,
-                    logger=logger,
-                    safe_page_content_fn=pipeline_context.safe_page_content_fn,
-                    extract_current_account_name_fn=pipeline_context.extract_current_account_name_fn,
-                )
+        assert refund_outcomes
+        result = _select_final_refund_outcome(refund_outcomes).result
 
     if result.actual_account_name.strip():
         try:
@@ -648,27 +888,45 @@ def _fetch_account_in_page_with_context(
         notification_outcome = collection_outcomes.get("通知中心", _default_notification_outcome())
         transaction_complaint_outcome = collection_outcomes.get("交易投诉", _default_transaction_complaint_outcome())
 
-        refund_flow: _RefundFeedbackFlow | None = None
+        refund_outcomes: tuple[_RefundRouteOutcome, ...] = ()
         if not transaction_complaint_outcome.get("enabled"):
-            refund_flow = _collect_feedback_route_flow(
-                manifest=manifest,
-                route=pipeline_context.feedback_route,
-                page=page,
-                account=account,
-                output_dir=output_dir,
-                captures=captures,
-                logger=logger,
-                log_fn=pipeline_context.log_fn,
-                open_feedback_page_fn=pipeline_context.open_feedback_page_fn,
-                wait_for_iframe_ready_fn=pipeline_context.wait_for_iframe_ready_fn,
-                resolve_frame_locator_fn=pipeline_context.resolve_frame_locator_fn,
-                business_iframe_selector_fn=pipeline_context.business_iframe_selector_fn,
-                safe_page_content_fn=pipeline_context.safe_page_content_fn,
-                fetch_paginated_refund_list_captures_fn=pipeline_context.fetch_paginated_refund_list_captures_fn,
-                is_empty_refund_list_fn=pipeline_context.is_empty_refund_list_fn,
-                confirm_empty_refund_list_fn=pipeline_context.confirm_empty_refund_list_fn,
-                is_cancelled=is_cancelled,
-            )
+            collected_refund_outcomes: list[_RefundRouteOutcome] = []
+            for route in pipeline_context.feedback_routes:
+                flow = _collect_feedback_route_flow(
+                    manifest=manifest,
+                    route=route,
+                    page=page,
+                    account=account,
+                    output_dir=output_dir,
+                    captures=captures,
+                    logger=logger,
+                    log_fn=pipeline_context.log_fn,
+                    open_feedback_page_fn=pipeline_context.open_feedback_page_fn,
+                    wait_for_iframe_ready_fn=pipeline_context.wait_for_iframe_ready_fn,
+                    resolve_frame_locator_fn=pipeline_context.resolve_frame_locator_fn,
+                    business_iframe_selector_fn=pipeline_context.business_iframe_selector_fn,
+                    safe_page_content_fn=pipeline_context.safe_page_content_fn,
+                    fetch_paginated_refund_list_captures_fn=pipeline_context.fetch_paginated_refund_list_captures_fn,
+                    is_empty_refund_list_fn=pipeline_context.is_empty_refund_list_fn,
+                    confirm_empty_refund_list_fn=pipeline_context.confirm_empty_refund_list_fn,
+                    is_cancelled=is_cancelled,
+                )
+                collected_refund_outcomes.append(
+                    _build_refund_route_result(
+                        manifest=manifest,
+                        pipeline_context=pipeline_context,
+                        page=page,
+                        context=context,
+                        account=account,
+                        output_dir=output_dir,
+                        profile_dir=profile_dir,
+                        route=route,
+                        flow=flow,
+                        logger=logger,
+                        is_cancelled=is_cancelled,
+                    )
+                )
+            refund_outcomes = tuple(collected_refund_outcomes)
 
         result, result_extra = _compose_fetch_result(
             manifest=manifest,
@@ -678,7 +936,7 @@ def _fetch_account_in_page_with_context(
             account=account,
             output_dir=output_dir,
             profile_dir=profile_dir,
-            refund_flow=refund_flow,
+            refund_outcomes=refund_outcomes,
             notification_outcome=notification_outcome,
             transaction_complaint_outcome=transaction_complaint_outcome,
             logger=logger,
@@ -688,6 +946,14 @@ def _fetch_account_in_page_with_context(
             write_fetch_result(account.name, result, extra=result_extra)
         elif not notification_outcome.get("ok", True) and str(notification_outcome.get("summary", "") or "").strip():
             write_fetch_result(account.name, result)
+        if result.ok:
+            _log_fetch_success_summary(
+                account=account,
+                logger=logger,
+                log_fn=pipeline_context.log_fn,
+                notification_outcome=notification_outcome,
+                refund_outcomes=refund_outcomes,
+            )
         _set_page_home_ready(page, False)
         _persist_fetch_run(manifest, account_name=account.name, result=result)
         return cast(FetchResult, result)
@@ -750,6 +1016,7 @@ def _fetch_account_in_page_impl_legacy(
         "summary": "",
         "page_url": "",
     }
+    refund_outcomes: tuple[_RefundRouteOutcome, ...] = ()
 
     try:
         with fetch_step(manifest, "注册响应监听"):
@@ -843,28 +1110,20 @@ def _fetch_account_in_page_impl_legacy(
                     page_url=str(transaction_complaint_outcome.get("page_url", "") or ""),
                 )
         else:
-            refund_flow = _collect_refund_feedback_flow(
-                manifest=manifest,
-                page=page,
-                account=account,
-                output_dir=output_dir,
-                captures=captures,
-                logger=logger,
-                log_fn=log_fn,
-                open_feedback_page_fn=open_feedback_page_fn,
-                build_feedback_url_fn=build_feedback_url_fn,
-                wait_for_iframe_ready_fn=wait_for_iframe_ready_fn,
-                resolve_frame_locator_fn=resolve_frame_locator_fn,
-                business_iframe_selector_fn=business_iframe_selector_fn,
-                safe_page_content_fn=safe_page_content_fn,
-                fetch_paginated_refund_list_captures_fn=fetch_paginated_refund_list_captures_fn,
-                is_empty_refund_list_fn=is_empty_refund_list_fn,
-                confirm_empty_refund_list_fn=confirm_empty_refund_list_fn,
-                is_cancelled=is_cancelled,
-                step_label="退款反馈页",
-            )
-            if refund_flow.empty_confirmed and callable(build_ios_refund_feedback_url_fn):
-                refund_flow = _collect_refund_feedback_flow(
+            refund_outcomes_list: list[_RefundRouteOutcome] = []
+            refund_routes = [
+                FeedbackRoute(name="退款反馈页", step_label="退款反馈页", build_feedback_url_fn=build_feedback_url_fn)
+            ]
+            if callable(build_ios_refund_feedback_url_fn):
+                refund_routes.append(
+                    FeedbackRoute(
+                        name="iOS退款问询",
+                        step_label="iOS退款问询",
+                        build_feedback_url_fn=build_ios_refund_feedback_url_fn,
+                    )
+                )
+            for route in refund_routes:
+                flow = _collect_refund_feedback_flow(
                     manifest=manifest,
                     page=page,
                     account=account,
@@ -873,7 +1132,7 @@ def _fetch_account_in_page_impl_legacy(
                     logger=logger,
                     log_fn=log_fn,
                     open_feedback_page_fn=open_feedback_page_fn,
-                    build_feedback_url_fn=build_ios_refund_feedback_url_fn,
+                    build_feedback_url_fn=route.build_feedback_url_fn,
                     wait_for_iframe_ready_fn=wait_for_iframe_ready_fn,
                     resolve_frame_locator_fn=resolve_frame_locator_fn,
                     business_iframe_selector_fn=business_iframe_selector_fn,
@@ -882,41 +1141,43 @@ def _fetch_account_in_page_impl_legacy(
                     is_empty_refund_list_fn=is_empty_refund_list_fn,
                     confirm_empty_refund_list_fn=confirm_empty_refund_list_fn,
                     is_cancelled=is_cancelled,
-                    step_label="iOS退款问询",
+                    step_label=route.step_label,
                 )
-
-            if refund_flow.empty_confirmed:
-                with fetch_step(manifest, "生成空列表采集结果"):
-                    result = build_empty_refund_result_fn(
-                        page=page,
-                        context=context,
-                        account=account,
-                        output_dir=output_dir,
-                        frame_locator=refund_flow.frame_locator,
-                        list_text=refund_flow.confirmed_list_text,
-                        captures=refund_flow.captures,
-                        feedback_url=refund_flow.feedback_url,
-                        profile_dir=profile_dir,
-                        logger=logger,
-                        safe_page_content_fn=safe_page_content_fn,
-                        extract_current_account_name_fn=extract_current_account_name_fn,
-                        is_cancelled=is_cancelled,
-                    )
-            else:
-                with fetch_step(manifest, "生成详情页采集结果"):
-                    result = build_detail_result_fn(
-                        page=page,
-                        context=context,
-                        account=account,
-                        output_dir=output_dir,
-                        frame_locator=refund_flow.frame_locator,
-                        captures=refund_flow.captures,
-                        feedback_url=refund_flow.feedback_url,
-                        profile_dir=profile_dir,
-                        logger=logger,
-                        safe_page_content_fn=safe_page_content_fn,
-                        extract_current_account_name_fn=extract_current_account_name_fn,
-                    )
+                if flow.empty_confirmed:
+                    with fetch_step(manifest, f"生成{route.step_label}空列表采集结果"):
+                        route_result = build_empty_refund_result_fn(
+                            page=page,
+                            context=context,
+                            account=account,
+                            output_dir=output_dir,
+                            frame_locator=flow.frame_locator,
+                            list_text=flow.confirmed_list_text,
+                            captures=flow.captures,
+                            feedback_url=flow.feedback_url,
+                            profile_dir=profile_dir,
+                            logger=logger,
+                            safe_page_content_fn=safe_page_content_fn,
+                            extract_current_account_name_fn=extract_current_account_name_fn,
+                            is_cancelled=is_cancelled,
+                        )
+                else:
+                    with fetch_step(manifest, f"生成{route.step_label}详情页采集结果"):
+                        route_result = build_detail_result_fn(
+                            page=page,
+                            context=context,
+                            account=account,
+                            output_dir=output_dir,
+                            frame_locator=flow.frame_locator,
+                            captures=flow.captures,
+                            feedback_url=flow.feedback_url,
+                            profile_dir=profile_dir,
+                            logger=logger,
+                            safe_page_content_fn=safe_page_content_fn,
+                            extract_current_account_name_fn=extract_current_account_name_fn,
+                        )
+                refund_outcomes_list.append(_RefundRouteOutcome(route=route, flow=flow, result=route_result))
+            refund_outcomes = tuple(refund_outcomes_list)
+            result = _select_final_refund_outcome(refund_outcomes).result
         if result.actual_account_name.strip():
             _set_page_current_account_name(page, result.actual_account_name)
         notification_summary = str(notification_outcome.get("summary", "") or "").strip()
@@ -936,6 +1197,14 @@ def _fetch_account_in_page_impl_legacy(
             write_fetch_result(account.name, result, extra=result_extra)
         elif not notification_outcome.get("ok", True) and notification_summary:
             write_fetch_result(account.name, result)
+        if result.ok:
+            _log_fetch_success_summary(
+                account=account,
+                logger=logger,
+                log_fn=log_fn,
+                notification_outcome=notification_outcome,
+                refund_outcomes=refund_outcomes if not transaction_complaint_outcome.get("enabled") else (),
+            )
         _set_page_home_ready(page, False)
         finish_fetch_run(manifest, result=result)
         write_fetch_manifest(account.name, manifest)

@@ -60,7 +60,7 @@ class UiSessionTestCase(UiTestBase):
         with patch.object(window, "_run_thread") as mock_run_thread:
             window.login_selected()
 
-        self.assertIn("正在为账号 入口账号 打开共享浏览器资料目录", window.log_edit.toPlainText())
+        self.assertIn("正在打开共享浏览器资料目录", window.log_edit.toPlainText())
         mock_run_thread.assert_called_once()
 
     def test_mark_login_updates_note_and_log(self):

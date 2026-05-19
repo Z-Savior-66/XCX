@@ -74,7 +74,6 @@ def login_selected(window: Any, *, save_login_state_with_profile_fn: Any, save_l
         window._show_info("提示", "导入账号不能直接保存登录态，请选择入口账号。")
         return
     window.append_log(window._login_start_message(account))
-    window.statusBar().showMessage("已打开浏览器，请完成扫码登录。", 8000)
     window._run_thread(
         lambda log, _progress=None, is_cancelled=None: (
             save_login_state_with_profile_fn(
@@ -106,12 +105,11 @@ def mark_login(
     save_accounts_fn(window.accounts)
     window.refresh_table()
     window.append_log(f"账号 {account.name} 的登录态已保存完成。")
-    window.statusBar().showMessage("登录态已保存", 5000)
 
 
 def login_start_message(window: Any, account: Any) -> str:
     if window.settings.browser_profile_dir.strip():
-        return f"正在为账号 {account.name} 打开共享浏览器资料目录。请在 {window.settings.login_wait_seconds} 秒内完成扫码，登录成功后保持页面打开等待自动保存。"
+        return f"正在打开共享浏览器资料目录。请在 {window.settings.login_wait_seconds} 秒内完成扫码，登录成功后保持页面打开等待自动保存。"
     return f"正在为账号 {account.name} 打开独立登录窗口。请在 {window.settings.login_wait_seconds} 秒内完成扫码，登录成功后保持页面打开等待自动保存。"
 
 

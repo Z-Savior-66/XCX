@@ -213,7 +213,6 @@ class UiFetchTestCase(UiTestBase):
         self.assertEqual(window.table.item(1, 2).text(), "抓取成功")
         self.assertEqual(window.table.item(1, 3).text(), "完成")
         log_text = window.log_edit.toPlainText()
-        self.assertIn("账号 导入账号A 抓取成功。", log_text)
         self.assertIn("抓取已完成，但账号状态暂未写入 data/accounts.json：磁盘写入失败", log_text)
         self.assertNotIn("保存抓取结果失败", log_text)
 
@@ -267,8 +266,6 @@ class UiFetchTestCase(UiTestBase):
             )
 
         log_text = window.log_edit.toPlainText()
-        self.assertIn("账号 导入账号A 抓取成功。", log_text)
-        self.assertNotIn("账号 导入账号A 抓取成功：已完成详情页抓取。", log_text)
         self.assertNotIn("诊断产物", log_text)
         self.assertNotIn("fetch_manifest.json", log_text)
 
@@ -299,7 +296,7 @@ class UiFetchTestCase(UiTestBase):
         mock_cleanup.assert_called_once_with("导入账号A", retention_days=14)
         self.assertNotIn("fetch_manifest.json", window.log_edit.toPlainText())
 
-    def test_mark_fetch_progress_keeps_failure_reason_in_result_log(self):
+    def test_mark_fetch_progress_keeps_regular_failure_reason_in_result_log(self):
         window = MainWindow()
         self.addCleanup(window.close)
         window.accounts = [
@@ -315,12 +312,46 @@ class UiFetchTestCase(UiTestBase):
                 FetchResult(
                     account_name="导入账号A",
                     ok=False,
-                    note="未在详情页文本中提取到处理截止时间。",
+                    note="切换账号列表中未找到目标账号",
                 )
             )
 
-        log_text = window.log_edit.toPlainText()
-        self.assertIn("账号 导入账号A 抓取失败：未在详情页文本中提取到处理截止时间。", log_text)
+        self.assertEqual(window.table.item(1, 2).text(), "抓取失败")
+        self.assertEqual(window.table.item(1, 3).text(), "失败")
+
+    def test_append_log_keeps_fetch_summary_details_out_of_status_bar(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+
+        window.append_log(
+            "账号 梦幻光环 抓取成功：\n1.通知中心无目标未读消息。\n2.未成年退款申请处理截止时间：2026-05-18 10:00:00。"
+        )
+
+        self.assertIn("1.通知中心无目标未读消息。", window.log_edit.toPlainText())
+        self.assertEqual(window._status_label.text(), "当前状态：就绪")
+
+    def test_mark_fetch_progress_treats_no_deadline_note_as_success(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window.accounts = [
+            AccountConfig(name="主账号", state_path="storage/shared.json", is_entry_account=True),
+            AccountConfig(name="导入账号A", state_path="storage/shared.json", is_entry_account=False),
+        ]
+
+        with (
+            patch("desktop_py.ui.main_window.save_accounts"),
+            patch("desktop_py.ui.main_window.save_settings"),
+        ):
+            window._mark_fetch_progress(
+                FetchResult(
+                    account_name="导入账号A",
+                    ok=False,
+                    note="截止时间内无待处理",
+                )
+            )
+
+        self.assertEqual(window.table.item(1, 2).text(), "抓取成功")
+        self.assertEqual(window.table.item(1, 3).text(), "完成")
 
     def test_mark_fetch_progress_updates_main_account_name_immediately(self):
         window = MainWindow()

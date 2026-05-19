@@ -1462,9 +1462,10 @@ class FetcherSessionTestCase(FetcherTestBase):
                 )
 
         self.assertTrue(valid)
-        self.assertIn("开始自动续期账号 主账号。", logs)
-        self.assertIn("续期登录态已通过保存后复验并替换正式文件。", logs)
-        self.assertIn("账号 主账号 自动续期成功。", logs)
+        self.assertIn("开始自动续期账号", logs)
+        self.assertNotIn("开始自动续期账号 主账号。", logs)
+        self.assertNotIn("续期登录态已通过保存后复验并替换正式文件。", logs)
+        self.assertNotIn("账号 主账号 自动续期成功。", logs)
 
     def test_renew_account_state_switches_to_different_candidate_after_valid_probe(self):
         calls: list[str] = []
@@ -1523,7 +1524,7 @@ class FetcherSessionTestCase(FetcherTestBase):
 
         self.assertTrue(valid)
         self.assertIn("switch:导入账号B", calls)
-        self.assertIn("自动续期准备切换到轮换账号：导入账号B。", logs)
+        self.assertNotIn("自动续期准备切换到轮换账号：导入账号B。", logs)
 
     def test_renew_account_state_retries_with_visible_account_when_placeholder_is_missing(self):
         calls: list[str] = []
@@ -1580,7 +1581,7 @@ class FetcherSessionTestCase(FetcherTestBase):
 
         self.assertTrue(valid)
         self.assertEqual(calls[:2], ["switch:登录账号", "switch:猎影"])
-        self.assertIn("自动续期轮换账号不可见，改为切换到当前可见账号：猎影。", logs)
+        self.assertNotIn("自动续期轮换账号不可见，改为切换到当前可见账号：猎影。", logs)
 
     def test_validate_account_state_recovers_from_root_page_before_marking_offline(self):
         account = AccountConfig(name="主账号", state_path="storage/shared.json")

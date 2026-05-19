@@ -243,7 +243,7 @@ def mark_auto_renew_result(window: Any, account: Any, valid: bool, *, save_accou
     if valid:
         account.last_note = "自动续期成功，保存后复验通过，可直接抓取"
         renewed_at = getattr(account, "last_session_renewed_at", "") or "刚刚"
-        window.append_log(f"账号 {account.name} 自动续期已通过保存后复验，最近续期时间：{renewed_at}。")
+        window.append_log(f"自动续期已通过保存后复验，最近续期时间：{renewed_at}。")
     else:
         base_reason = account.last_session_error or "自动续期失败，请重新保存登录态"
         account.last_note = f"{base_reason}，连续失败 {account.session_renewal_failures} 次"
@@ -255,6 +255,9 @@ def mark_auto_renew_result(window: Any, account: Any, valid: bool, *, save_accou
 
 
 def run_auto_fetch_push(window: Any) -> None:
+    if window._threads:
+        window.append_log("自动抓取推送已跳过：当前存在后台任务。")
+        return
     webhook = window.webhook_edit.text().strip() or window.settings.feishu_webhook.strip()
     if not webhook:
         window.append_log("自动抓取推送已跳过：未配置飞书 Webhook。")

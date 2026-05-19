@@ -126,6 +126,22 @@ class UiSchedulingTestCase(UiTestBase):
         mock_schedule.assert_called_once()
         mock_run.assert_called_once()
 
+    def test_run_auto_fetch_push_skips_when_background_task_exists(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window._threads.append(object())
+        window.webhook_edit.setText("https://open.feishu.cn/open-apis/bot/v2/hook/demo")
+        window.accounts = [
+            AccountConfig(name="主账号", state_path="storage/shared.json", is_entry_account=True, enabled=True),
+            AccountConfig(name="导入账号A", state_path="storage/shared.json", is_entry_account=False, enabled=True),
+        ]
+
+        with patch.object(window, "_run_thread") as mock_run_thread:
+            window._run_auto_fetch_push()
+
+        mock_run_thread.assert_not_called()
+        self.assertIn("自动抓取推送已跳过：当前存在后台任务。", window.log_edit.toPlainText())
+
     def test_auto_renew_interval_uses_two_to_four_hours_range(self):
         self.assertEqual(AUTO_RENEW_INTERVAL_MIN_MS, 2 * 60 * 60 * 1000)
         self.assertEqual(AUTO_RENEW_INTERVAL_MAX_MS, 4 * 60 * 60 * 1000)
@@ -521,7 +537,8 @@ class UiSchedulingTestCase(UiTestBase):
         self.assertEqual(account.last_note, "自动续期成功，保存后复验通过，可直接抓取")
         log_text = window.log_edit.toPlainText()
         self.assertIn("连续失败 2 次", log_text)
-        self.assertIn("保存后复验", log_text)
+        self.assertIn("自动续期已通过保存后复验", log_text)
+        self.assertNotIn("账号 主账号 自动续期已通过保存后复验", log_text)
 
     def test_run_auto_fetch_push_requires_webhook(self):
         window = MainWindow()

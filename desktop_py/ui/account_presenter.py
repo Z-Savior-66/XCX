@@ -77,6 +77,10 @@ def display_deadline_text(account: AccountConfig) -> str:
         return "--"
     if is_no_business_page_note(account.last_note):
         return "无页面"
+    if account.last_status == FETCH_STATUS_SUCCESS and is_expected_empty_result_note_from_core(account.last_note):
+        if "截止时间内无待处理" in account.last_note:
+            return "截止时间内无待处理"
+        return account.last_deadline or "无待处理"
     if account.last_status == FETCH_STATUS_SUCCESS:
         return account.last_deadline or "无待处理"
     if account.last_status == FETCH_STATUS_FAILURE:

@@ -60,6 +60,8 @@ def extract_response_token(response_url: str) -> str:
 
 def classify_refund_response_type(response_url: str, body: Any) -> str:
     url = response_url.strip().lower()
+    if "getiaprefundlist" in url:
+        return "list"
     if DEFAULT_REFUND_RULES.list_response_keyword in url:
         if any(marker in url for marker in DEFAULT_REFUND_RULES.detail_query_markers):
             return "detail"

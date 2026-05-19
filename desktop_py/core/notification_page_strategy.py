@@ -167,7 +167,6 @@ def fetch_notifications(
         notifications = filter_target_unread_notifications(items, account.name)
         write_account_output_json(account.name, "notifications.json", notifications)
         summary = build_notification_summary(notifications)
-        log_fn(logger, f"账号 {account.name} {summary}")
         return {
             "ok": True,
             "notifications": notifications,
@@ -181,7 +180,6 @@ def fetch_notifications(
             pass
         write_account_output_json(account.name, "notifications.json", [])
         message = f"通知中心抓取失败：{exc}"
-        log_fn(logger, f"账号 {account.name} {message}")
         return {
             "ok": False,
             "notifications": [],

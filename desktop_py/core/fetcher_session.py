@@ -240,8 +240,11 @@ def save_login_state_with_profile_impl(
         page = context.new_page()
         try:
             page.goto(account.home_url, wait_until="domcontentloaded")
-            log_fn(logger, f"已打开共享浏览器资料目录，请在 {wait_seconds} 秒内完成账号 {account.name} 的扫码登录。")
-            log_fn(logger, "如果共享资料目录里已经保留有效登录态，无需重复扫码，保持页面打开等待程序自动保存即可。")
+            log_fn(
+                logger,
+                f"已打开共享浏览器资料目录，请在 {wait_seconds} 秒内完成扫码登录。"
+                "如果共享资料目录里已经保留有效登录态，无需重复扫码，保持页面打开等待程序自动保存即可。",
+            )
 
             try:
                 _wait_for_login_success(
@@ -268,7 +271,7 @@ def save_login_state_with_profile_impl(
             close_context_and_browser_fn(context, None)
 
     account.last_login_at = _now_text()
-    log_fn(logger, f"共享资料目录登录态已同步保存到 {state_path}")
+    log_fn(logger, f"登录态已同步保存到 {state_path}")
     return str(state_path)
 
 
@@ -346,9 +349,9 @@ def validate_account_state_impl(
         session_source=session_source_for_profile_dir(normalized_profile_dir),
     )
     apply_session_verification(account, verification, profile_dir=normalized_profile_dir)
-    reason = f"：{verification.reason}" if not valid and verification.reason else ""
-    log_fn(logger, f"账号 {account.name} 登录态校验结果：{'有效' if valid else '无效'}{reason}")
     if not valid:
+        reason = f"：{verification.reason}" if verification.reason else ""
+        log_fn(logger, f"账号 {account.name} 登录态校验结果：无效{reason}")
         log_session_offline(
             account.name,
             verification.reason or "未识别到可用后台登录态",
@@ -431,7 +434,6 @@ def _switch_to_renew_account(
     current_account_name: str = "",
     previous_account_name: str = "",
 ) -> None:
-    log_fn(logger, f"自动续期准备切换到轮换账号：{switch_account_name}。")
     try:
         switch_to_account_fn(page, switch_account_name, account.home_url, logger)
         return
@@ -445,7 +447,6 @@ def _switch_to_renew_account(
         if not retry_account_name or retry_account_name == switch_account_name:
             raise FetchError(f"自动续期轮换切换失败：{exc}") from exc
 
-    log_fn(logger, f"自动续期轮换账号不可见，改为切换到当前可见账号：{retry_account_name}。")
     try:
         switch_to_account_fn(page, retry_account_name, account.home_url, logger)
     except Exception as exc:
@@ -517,7 +518,7 @@ def renew_account_state_impl(
     renew_switch_account_names: list[str] | None = None,
     switch_to_account_fn: Callable[..., Any] | None = None,
 ) -> bool:
-    log_fn(logger, f"开始自动续期账号 {account.name}。")
+    log_fn(logger, "开始自动续期账号")
     normalized_profile_dir = normalize_profile_dir(
         profile_dir,
         validate_shared_browser_profile_dir_fn=validate_shared_browser_profile_dir_fn,
@@ -586,7 +587,6 @@ def renew_account_state_impl(
                     renewed = verification.valid
                     if renewed:
                         _replace_state_with_verified_temp(temp_state_path, Path(state_path))
-                        log_fn(logger, "续期登录态已通过保存后复验并替换正式文件。")
                     else:
                         verification = SessionVerification(
                             False,
@@ -643,9 +643,7 @@ def renew_account_state_impl(
         session_source=session_source_for_profile_dir(normalized_profile_dir),
     )
     apply_session_verification(account, verification, profile_dir=normalized_profile_dir, renewed=renewed)
-    if renewed:
-        log_fn(logger, f"账号 {account.name} 自动续期成功。")
-    else:
+    if not renewed:
         reason = f"：{verification.reason}" if verification.reason else ""
         extra = []
         if verification.branch:

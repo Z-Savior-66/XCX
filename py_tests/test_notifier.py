@@ -3,9 +3,7 @@ from unittest.mock import patch
 
 from desktop_py.core.models import FetchResult
 from desktop_py.core.notifier import (
-    build_pending_notification,
     build_summary,
-    notification_content_hash,
     send_feishu_text,
     summary_result_hash,
 )
@@ -173,15 +171,6 @@ class NotifierTestCase(unittest.TestCase):
         ]
 
         self.assertEqual(summary_result_hash(first), summary_result_hash(second))
-
-    def test_build_pending_notification_uses_content_hash(self):
-        notification = build_pending_notification("待补发内容", source="测试来源")
-
-        self.assertEqual(notification.id, notification_content_hash("待补发内容"))
-        self.assertEqual(notification.content, "待补发内容")
-        self.assertEqual(notification.source, "测试来源")
-        self.assertRegex(notification.created_at, r"^20\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$")
-
 
 if __name__ == "__main__":
     unittest.main()

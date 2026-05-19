@@ -134,6 +134,31 @@ class FetcherReplayTestCase(FetcherTestBase):
                 confirm_detail_deadline_fn=self.confirm_detail_deadline_for_replay,
             )
 
+    def build_replay_detail_result_without_deadline(self):
+        html = self.read_fixture("replay_detail_frame.html")
+        page = ReplayPage(html=html)
+        frame_locator = ReplayFrameLocator(text=html, html=html)
+        account = AccountConfig(name="脱敏账号", state_path="storage/replay.json", is_entry_account=False)
+
+        with (
+            patch("desktop_py.core.fetcher_page_strategy.persist_storage_state"),
+            patch("desktop_py.core.fetcher_page_strategy.write_fetch_result"),
+        ):
+            return build_detail_result(
+                page=page,
+                context=ReplayContext(),
+                account=account,
+                output_dir=Path("脱敏账号"),
+                frame_locator=frame_locator,
+                captures=[],
+                feedback_url=FEEDBACK_URL,
+                profile_dir="",
+                logger=None,
+                safe_page_content_fn=lambda current_page: current_page.content(),
+                extract_current_account_name_fn=lambda current_page: current_page.account_name,
+                confirm_detail_deadline_fn=lambda **_kwargs: ("", html, html),
+            )
+
     def build_replay_empty_result(self):
         html = self.read_fixture("replay_empty_list_frame.html")
         page = ReplayPage(html=html)
@@ -169,6 +194,13 @@ class FetcherReplayTestCase(FetcherTestBase):
         for case_name, build_result in cases.items():
             with self.subTest(case=case_name):
                 self.assertEqual(self.stable_result_dict(build_result()), golden[case_name])
+
+    def test_replay_detail_without_deadline_is_still_success(self):
+        result = self.build_replay_detail_result_without_deadline()
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.deadline_text, "")
+        self.assertEqual(result.note, "截止时间内无待处理")
 
     def test_replay_iframe_detail_fixture_extracts_deadline(self):
         detail_html = self.read_fixture("replay_detail_frame.html")

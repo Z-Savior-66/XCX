@@ -2,7 +2,6 @@ import unittest
 
 from desktop_py.core.account_status import (
     AUTO_PUSH_SKIP_NOTE,
-    FETCH_STATUS_FAILURE,
     FETCH_STATUS_SUCCESS,
     LOGIN_STATUS_INVALID,
     LOGIN_STATUS_SAVED,
@@ -25,8 +24,8 @@ class AccountStatusTestCase(unittest.TestCase):
         )
         self.assertEqual(fetch_status_from_result(False, "当前账号无待处理申请。"), FETCH_STATUS_SUCCESS)
 
-    def test_fetch_status_from_result_marks_regular_failures(self):
-        self.assertEqual(fetch_status_from_result(False, "未在详情页文本中提取到处理截止时间。"), FETCH_STATUS_FAILURE)
+    def test_fetch_status_from_result_treats_no_deadline_note_as_success(self):
+        self.assertEqual(fetch_status_from_result(False, "截止时间内无待处理"), FETCH_STATUS_SUCCESS)
 
     def test_display_result_text_tracks_status_grouping(self):
         self.assertEqual(display_result_text(FETCH_STATUS_SUCCESS), RESULT_STATUS_DONE)

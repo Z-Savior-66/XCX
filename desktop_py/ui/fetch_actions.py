@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from desktop_py.core.account_status import fetch_status_from_result
+
 FETCH_MANIFEST_NAME = "fetch_manifest.json"
 
 
@@ -64,7 +66,14 @@ def mark_fetch_progress(window: Any, result: Any) -> None:
 
 
 def fetch_diagnostic_message(account: Any, result: Any, *, account_output_file_fn: Any = None) -> str:
-    if result.ok:
+    if (
+        fetch_status_from_result(bool(getattr(result, "ok", False)), str(getattr(result, "note", "") or ""))
+        == "抓取成功"
+    ):
+        note = str(getattr(result, "note", "") or "").strip()
+        if note:
+            suffix = "" if note.endswith(("。", "！", "？", ".", "!", "?")) else "。"
+            return f"账号 {account.name} 抓取成功：{note}{suffix}"
         return f"账号 {account.name} 抓取成功。"
     note = str(getattr(result, "note", "") or "").strip()
     if not note:
@@ -83,7 +92,6 @@ def mark_fetch_result(
     cleanup_account_diagnostics_fn: Any = None,
 ) -> None:
     current_main_account_name = apply_fetch_result_fn(account, result)
-    window.append_log(fetch_diagnostic_message(account, result))
     if callable(cleanup_account_diagnostics_fn):
         try:
             cleanup_account_diagnostics_fn(

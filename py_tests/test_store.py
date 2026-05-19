@@ -6,24 +6,20 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from desktop_py.core.models import CONFIG_SCHEMA_VERSION, AccountConfig, AppSettings, PendingNotification
+from desktop_py.core.models import CONFIG_SCHEMA_VERSION, AccountConfig, AppSettings
 from desktop_py.core.store import (
     SHARED_BROWSER_PROFILE_DIR_NAME,
     _write_text_atomic,
     account_output_file,
     account_state_path,
     acquire_app_instance_lock,
-    append_pending_notification,
     cleanup_account_diagnostics,
     diagnostic_index_file,
     load_accounts,
-    load_pending_notifications,
     load_settings,
     prepare_shared_browser_profile_dir,
-    remove_pending_notifications,
     runtime_root,
     save_accounts,
-    save_pending_notifications,
     save_settings,
     validate_shared_browser_profile_dir,
     write_account_output_json,
@@ -102,22 +98,6 @@ class StoreTestCase(unittest.TestCase):
 
         self.assertEqual(accounts[0].name, "测试账号")
         self.assertEqual(accounts[0].schema_version, CONFIG_SCHEMA_VERSION)
-
-    def test_load_pending_notifications_defaults_schema_version_when_missing(self):
-        with TemporaryDirectory() as temp_dir:
-            pending_path = Path(temp_dir) / "pending_notifications.json"
-            pending_path.write_text(
-                '[{"id":"abc123","content":"待补发内容","created_at":"2026-05-18 17:00:00"}]\n',
-                encoding="utf-8",
-            )
-
-            with (
-                patch("desktop_py.core.store.PENDING_NOTIFICATIONS_FILE", pending_path),
-                patch("desktop_py.core.store.ensure_runtime_dirs"),
-            ):
-                notifications = load_pending_notifications()
-
-        self.assertEqual(notifications[0].schema_version, CONFIG_SCHEMA_VERSION)
 
     def test_load_accounts_ignores_unknown_fields(self):
         with TemporaryDirectory() as temp_dir:
@@ -284,67 +264,6 @@ class StoreTestCase(unittest.TestCase):
         self.assertIn('"name": "测试账号"', calls[0][1])
         self.assertIn('"feishu_webhook": "demo"', calls[1][1])
         self.assertIn('"ok": true', calls[2][1])
-
-    def test_pending_notifications_round_trip_and_remove(self):
-        with TemporaryDirectory() as temp_dir:
-            pending_path = Path(temp_dir) / "pending_notifications.json"
-            with (
-                patch("desktop_py.core.store.PENDING_NOTIFICATIONS_FILE", pending_path),
-                patch("desktop_py.core.store.ensure_runtime_dirs"),
-            ):
-                self.assertEqual(load_pending_notifications(), [])
-                notification = PendingNotification(
-                    id="abc123",
-                    content="待补发内容",
-                    created_at="2026-05-15 22:00:00",
-                    source="测试",
-                )
-                save_pending_notifications([notification])
-                loaded = load_pending_notifications()
-                removed = remove_pending_notifications(["abc123"])
-
-        self.assertEqual(loaded, [notification])
-        self.assertEqual(removed, 1)
-
-    def test_append_pending_notification_deduplicates_by_id(self):
-        with TemporaryDirectory() as temp_dir:
-            pending_path = Path(temp_dir) / "pending_notifications.json"
-            notification = PendingNotification(
-                id="same-id",
-                content="待补发内容",
-                created_at="2026-05-15 22:00:00",
-            )
-            with (
-                patch("desktop_py.core.store.PENDING_NOTIFICATIONS_FILE", pending_path),
-                patch("desktop_py.core.store.ensure_runtime_dirs"),
-            ):
-                first_result = append_pending_notification(notification)
-                second_result = append_pending_notification(notification)
-                loaded = load_pending_notifications()
-
-        self.assertTrue(first_result)
-        self.assertFalse(second_result)
-        self.assertEqual(loaded, [notification])
-
-    def test_load_pending_notifications_recovers_corrupt_json_with_backup(self):
-        with TemporaryDirectory() as temp_dir:
-            pending_path = Path(temp_dir) / "pending_notifications.json"
-            pending_path.write_text("{", encoding="utf-8")
-
-            with (
-                patch("desktop_py.core.store.PENDING_NOTIFICATIONS_FILE", pending_path),
-                patch("desktop_py.core.store.ensure_runtime_dirs"),
-            ):
-                notifications = load_pending_notifications()
-
-            backups = list(Path(temp_dir).glob("pending_notifications.json.*.corrupt"))
-            backup_content = backups[0].read_text(encoding="utf-8")
-            restored_content = pending_path.read_text(encoding="utf-8")
-
-        self.assertEqual(notifications, [])
-        self.assertEqual(len(backups), 1)
-        self.assertEqual(backup_content, "{")
-        self.assertEqual(restored_content, "[]\n")
 
     def test_atomic_write_keeps_original_file_when_replace_fails(self):
         with TemporaryDirectory() as temp_dir:

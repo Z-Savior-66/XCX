@@ -11,6 +11,7 @@ from py_tests.fetcher_test_support import (
     TemporaryDirectory,
     _fallback_from_responses,
     business_iframe_selector,
+    classify_refund_response_type,
     extract_labeled_datetime,
     is_login_timeout_page,
     is_wechat_mp_root_page_url,
@@ -317,6 +318,29 @@ class FetcherPageStrategyTestCase(FetcherTestBase):
 
         self.assertFalse(confirmed)
         self.assertIn("处理截止时间", latest_text)
+
+    def test_classify_refund_response_type_treats_ios_refund_list_as_list(self):
+        response_type = classify_refund_response_type(
+            "https://gamemp.weixin.qq.com/cgi-bin/gamewxagpaymgrwap/getiaprefundlist?token=1",
+            {"data": {"list": [], "total_cnt": 0}},
+        )
+
+        self.assertEqual(response_type, "list")
+
+    def test_list_capture_result_supports_ios_total_count_fields(self):
+        from desktop_py.core.fetcher_page_strategy import list_capture_result
+
+        empty_capture = {
+            "response_type": "list",
+            "body": {"data": {"list": [], "total_cnt": 0}},
+        }
+        non_empty_capture = {
+            "response_type": "list",
+            "body": {"data": {"list": [{"deadline_time": "2026-04-25 00:00:00"}], "total_cnt": 1}},
+        }
+
+        self.assertEqual(list_capture_result([empty_capture]), "empty")
+        self.assertEqual(list_capture_result([non_empty_capture]), "non_empty")
 
     def test_confirm_empty_refund_list_detects_very_late_detail_before_accepting_empty(self):
         from desktop_py.core.fetcher_page_strategy import confirm_empty_refund_list
@@ -891,9 +915,8 @@ class FetcherPageStrategyTestCase(FetcherTestBase):
         self.assertEqual(raised.exception.evidence[0]["path"], str(output_dir / "page.html"))
         write_text.assert_called_with("账号A", "page.html", "<html>无 iframe</html>")
 
-    def test_build_detail_result_error_has_deadline_code_and_evidence(self):
+    def test_build_detail_result_without_deadline_returns_success_note(self):
         from desktop_py.core.fetcher_page_strategy import build_detail_result
-        from desktop_py.core.fetcher_support import FetchError, FetchErrorCode
 
         class EmptyActionLocator:
             def count(self):
@@ -905,32 +928,32 @@ class FetcherPageStrategyTestCase(FetcherTestBase):
 
         class FakeContext:
             def storage_state(self, path=None, indexed_db=False):
-                raise AssertionError("提取失败时不应保存登录态")
+                return None
 
         with (
             TemporaryDirectory() as temp_dir,
-            patch("desktop_py.core.fetcher_page_strategy.write_fetch_artifacts") as write_artifacts,
+            patch("desktop_py.core.fetcher_page_strategy.write_fetch_result") as write_fetch_result,
         ):
             output_dir = Path(temp_dir)
-            with self.assertRaises(FetchError) as raised:
-                build_detail_result(
-                    page=object(),
-                    context=FakeContext(),
-                    account=AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False),
-                    output_dir=output_dir,
-                    frame_locator=FrameLocator(),
-                    captures=[],
-                    feedback_url="https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?token=current",
-                    profile_dir="",
-                    logger=None,
-                    safe_page_content_fn=lambda _page: "<html>详情页</html>",
-                    extract_current_account_name_fn=lambda _page: "账号A",
-                    confirm_detail_deadline_fn=lambda **_kwargs: ("", "无截止时间", "<div>无截止时间</div>"),
-                )
+            result = build_detail_result(
+                page=object(),
+                context=FakeContext(),
+                account=AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False),
+                output_dir=output_dir,
+                frame_locator=FrameLocator(),
+                captures=[],
+                feedback_url="https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?token=current",
+                profile_dir="",
+                logger=None,
+                safe_page_content_fn=lambda _page: "<html>详情页</html>",
+                extract_current_account_name_fn=lambda _page: "账号A",
+                confirm_detail_deadline_fn=lambda **_kwargs: ("", "无截止时间", "<div>无截止时间</div>"),
+            )
 
-        self.assertEqual(raised.exception.code, FetchErrorCode.DEADLINE_MISSING)
-        self.assertEqual(raised.exception.evidence[1]["path"], str(output_dir / "iframe.txt"))
-        write_artifacts.assert_called()
+        self.assertTrue(result.ok)
+        self.assertEqual(result.deadline_text, "")
+        self.assertEqual(result.note, "截止时间内无待处理")
+        write_fetch_result.assert_called_once()
 
     def test_build_detail_result_prefers_action_response_contract_over_dom_text(self):
         from desktop_py.core.fetcher_page_strategy import (

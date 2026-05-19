@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-from desktop_py.core.fetcher_output import persist_storage_state, write_fetch_artifacts
+from desktop_py.core.fetcher_output import persist_storage_state
 from desktop_py.core.fetcher_rules import DEFAULT_REFUND_RULES
 from desktop_py.core.fetcher_support import FetchError, FetchErrorCode, _fallback_from_responses
 from desktop_py.core.models import AccountConfig, FetchResult
@@ -100,6 +100,8 @@ def _refund_items_from_capture(capture: dict[str, Any] | None) -> list[dict[str,
         return []
     items = data.get("user_refund_check_list")
     if not isinstance(items, list):
+        items = data.get("list")
+    if not isinstance(items, list):
         return []
     return [item for item in items if isinstance(item, dict)]
 
@@ -135,7 +137,7 @@ def _refund_list_capture_pagination(capture: dict[str, Any] | None) -> tuple[str
     data = body.get("data")
     if not isinstance(data, dict):
         return "", 0, 0, 0, 0
-    total_count = int(data.get("total_count") or 0)
+    total_count = int(data.get("total_count") or data.get("total_cnt") or 0)
     item_count = len(_refund_items_from_capture(capture))
     query = parse_qs(urlparse(capture_url).query)
     per_page = int((query.get("per_page") or ["0"])[0] or 0)
@@ -214,12 +216,16 @@ def list_capture_result(captures: list[Any]) -> str:
     if not isinstance(data, dict):
         return "unknown"
     raw_items = data.get("user_refund_check_list")
+    if not isinstance(raw_items, list):
+        raw_items = data.get("list")
     if isinstance(raw_items, list):
         items = [item for item in raw_items if isinstance(item, dict)]
         if items:
             return "non_empty"
         return "empty"
     total_count = data.get("total_count")
+    if total_count is None:
+        total_count = data.get("total_cnt")
     if total_count == 0 or str(total_count).strip() == "0":
         return "empty"
     return "unknown"
@@ -475,7 +481,6 @@ def build_empty_refund_result(
         note="当前账号无待处理申请。",
     )
     write_fetch_result(account.name, result)
-    _log(logger, f"账号 {account.name} 当前无待处理申请。")
     return result
 
 
@@ -557,33 +562,19 @@ def build_detail_result(
     actual_account_name = extract_current_account_name_fn(page)
 
     if not deadline_text:
-        page_html = safe_page_content_fn(page)
-        write_fetch_artifacts(
-            account.name,
-            page_html=page_html,
-            frame_html=frame_html,
-            frame_text=frame_text,
-            captures=captures,
+        persist_storage_state(context, account.state_path, page=page, logger=logger, log_fn=_log)
+        result = FetchResult(
+            account_name=account.name,
+            ok=True,
+            actual_account_name=actual_account_name,
+            deadline_text="",
+            deadline_source="",
+            matched_path="",
+            page_url=feedback_url,
+            note="截止时间内无待处理",
         )
-        raise FetchError(
-            "未在详情页文本中提取到处理截止时间。",
-            code=FetchErrorCode.DEADLINE_MISSING,
-            evidence=[
-                {
-                    "kind": "html",
-                    "label": "页面 HTML",
-                    "path": str(output_dir / "page.html"),
-                    "summary": "未提取到处理截止时间，已保存页面和 iframe 诊断文件。",
-                },
-                {
-                    "kind": "text",
-                    "label": "iframe 文本",
-                    "path": str(output_dir / "iframe.txt"),
-                    "summary": "详情页文本未包含可识别的处理截止时间。",
-                    "metadata": {"capture_count": len(captures)},
-                },
-            ],
-        )
+        write_fetch_result(account.name, result)
+        return result
 
     persist_storage_state(context, account.state_path, page=page, logger=logger, log_fn=_log)
     result = FetchResult(
@@ -597,7 +588,6 @@ def build_detail_result(
         note="已完成详情页抓取。",
     )
     write_fetch_result(account.name, result)
-    _log(logger, f"账号 {account.name} 抓取成功，处理截止时间：{deadline_text}")
     return result
 
 

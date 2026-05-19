@@ -15,7 +15,7 @@ RESULT_STATUS_EMPTY: Final[str] = ""
 SUCCESS_ACCOUNT_STATUSES: Final[frozenset[str]] = frozenset(
     {FETCH_STATUS_SUCCESS, LOGIN_STATUS_VALID, LOGIN_STATUS_SAVED}
 )
-EXPECTED_EMPTY_RESULT_NOTES: Final[frozenset[str]] = frozenset({"当前账号无待处理申请"})
+EXPECTED_EMPTY_RESULT_NOTES: Final[frozenset[str]] = frozenset({"当前账号无待处理申请", "截止时间内无待处理"})
 NO_BUSINESS_PAGE_NOTE: Final[str] = "页面未出现业务 iframe"
 AUTO_PUSH_SKIP_NOTE: Final[str] = "当前登录态未自动跳入后台页，且没有可复用的历史反馈页地址，无法启动自动切换账号。"
 

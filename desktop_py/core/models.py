@@ -75,15 +75,3 @@ class FetchResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-
-@dataclass
-class PendingNotification:
-    id: str
-    content: str
-    created_at: str
-    schema_version: int = CONFIG_SCHEMA_VERSION
-    source: str = "飞书汇总"
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)

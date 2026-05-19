@@ -7,7 +7,7 @@ from typing import Any
 
 import requests
 
-from desktop_py.core.models import FetchResult, PendingNotification
+from desktop_py.core.models import FetchResult
 
 
 def send_feishu_text(webhook: str, content: str) -> None:
@@ -138,16 +138,3 @@ def summary_result_hash(results: list[FetchResult]) -> str:
     ]
     content = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
-
-
-def notification_content_hash(content: str) -> str:
-    return hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
-
-
-def build_pending_notification(content: str, source: str = "飞书汇总") -> PendingNotification:
-    return PendingNotification(
-        id=notification_content_hash(content),
-        content=content,
-        created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        source=source,
-    )

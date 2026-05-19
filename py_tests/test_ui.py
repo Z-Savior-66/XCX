@@ -231,13 +231,13 @@ class UiSmokeTestCase(UiTestBase):
                 state_path="storage/shared.json",
                 is_entry_account=False,
                 last_status="抓取成功",
-                last_note="未在详情页文本中提取到处理截止时间。",
+                last_note="截止时间内无待处理",
             ),
         ]
 
         window.refresh_table()
 
-        self.assertEqual(window.table.item(0, 1).text(), "无待处理")
+        self.assertEqual(window.table.item(0, 1).text(), "截止时间内无待处理")
         self.assertEqual(window.table.item(0, 2).text(), "抓取成功")
         self.assertEqual(window.table.item(0, 3).text(), "完成")
 

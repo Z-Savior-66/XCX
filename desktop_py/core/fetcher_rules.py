@@ -90,6 +90,7 @@ DEFAULT_REFUND_RULES = RefundRuleSet(
         "getuserrefundchecklist",
         "checkuserrefundcheck",
         "getpayorderlistforuserrefund",
+        "getiaprefundlist",
     ),
     list_response_keyword="getuserrefundchecklist",
     detail_response_keywords=(

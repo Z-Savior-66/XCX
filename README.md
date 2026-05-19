@@ -138,12 +138,6 @@ python desktop_py_cli.py fetch-all
 python desktop_py_cli.py notify
 ```
 
-### 补发失败的飞书汇总
-
-```powershell
-python desktop_py_cli.py resend-notifications
-```
-
 ## 桌面版使用方式
 
 1. 打开桌面程序，点击“新增账号”
@@ -156,8 +150,7 @@ python desktop_py_cli.py resend-notifications
 8. 若资料目录或登录态里已包含多个可切换账号，后续新增其他账号名称时可复用同一份资料
 9. 也可以选中一个已登录账号后点击“导入账号列表”，自动读取切换账号弹窗中的账号名
 10. 点击“抓取选中”或“抓取并推送”
-11. 配置飞书 Webhook 后点击“发送飞书”
-12. 如果飞书发送失败，程序会保存待补发摘要，稍后可点击“补发飞书”
+11. 配置飞书 Webhook 后点击“推送飞书”
 
 ## 登录态保存与续期
 

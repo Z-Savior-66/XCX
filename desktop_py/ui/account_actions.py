@@ -47,8 +47,7 @@ def save_current_settings(
         return
     window.profile_dir_edit.setText(browser_profile_dir)
     window._apply_auto_fetch_push_schedule()
-    window.append_log("全局设置已保存。")
-    window.statusBar().showMessage("设置已保存", 4000)
+    window.append_log("设置已保存。")
 
 
 def choose_profile_dir(window: Any, *, file_dialog: Any, prepare_shared_browser_profile_dir_fn: Any) -> None:
@@ -80,7 +79,7 @@ def add_account(window: Any, *, account_dialog_cls: Any, default_state_path_fn: 
     propagate_account_feedback_url(window.accounts, account)
     save_accounts_fn(window.accounts)
     window.refresh_table()
-    window.append_log(f"已新增账号：{account.name}，登录态文件：{account.state_path}")
+    window.append_log("账号已新增。")
 
 
 def edit_account(window: Any, *, account_dialog_cls: Any, default_state_path_fn: Any, save_accounts_fn: Any) -> None:
@@ -128,7 +127,7 @@ def edit_account(window: Any, *, account_dialog_cls: Any, default_state_path_fn:
     propagate_account_feedback_url(window.accounts, updated)
     save_accounts_fn(window.accounts)
     window.refresh_table()
-    window.append_log(f"已更新账号：{updated.name}")
+    window.append_log("账号已更新。")
 
 
 def import_accounts(window: Any, *, fetch_switchable_accounts_fn: Any, save_accounts_fn: Any | None = None) -> None:
@@ -180,7 +179,7 @@ def merge_imported_accounts(
         imported += 1
     save_accounts_fn(window.accounts)
     window.refresh_table()
-    window.append_log(f"已导入 {imported} 个新账号。")
+    window.append_log(f"已导入 {imported} 个账号。")
 
 
 def delete_account(window: Any, *, message_dialog_cls: Any, save_accounts_fn: Any) -> None:
@@ -197,4 +196,4 @@ def delete_account(window: Any, *, message_dialog_cls: Any, save_accounts_fn: An
         window.accounts.pop(index)
     save_accounts_fn(window.accounts)
     window.refresh_table()
-    window.append_log(f"已删除账号：{'、'.join(removed_names)}")
+    window.append_log("账号已删除。")

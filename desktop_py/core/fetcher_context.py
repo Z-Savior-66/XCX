@@ -33,4 +33,4 @@ class PipelineContext:
     build_empty_refund_result_fn: Callable[..., FetchResult]
     build_detail_result_fn: Callable[..., FetchResult]
     collection_routes: tuple[CollectionRoute, ...]
-    feedback_route: FeedbackRoute
+    feedback_routes: tuple[FeedbackRoute, ...]
