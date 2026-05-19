@@ -1,39 +1,46 @@
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
+from desktop_py.core.fetcher_batch_runner import run_fetch_accounts_batch
 from desktop_py.core.fetcher_context import PipelineContext
+from desktop_py.core.fetcher_diagnostics import (
+    compose_fetch_result,
+    default_notification_outcome,
+    default_transaction_complaint_outcome,
+    log_fetch_success_summary,
+    persist_fetch_run,
+)
 from desktop_py.core.fetcher_manifest import (
-    BatchDiagnosticIndex,
     FetchRunManifest,
-    add_batch_diagnostic_account,
     add_fetch_evidence,
     fetch_step,
-    finish_batch_diagnostic_index,
-    finish_fetch_run,
-    start_batch_diagnostic_index,
     start_fetch_run,
     write_batch_diagnostic_index,
-    write_fetch_manifest,
+)
+from desktop_py.core.fetcher_navigation import (
+    collect_ios_refund_subject_captures,
+    page_current_account_name,
+    page_has_backend_session,
+    recover_timeout_page_if_needed,
+    set_page_current_account_name,
+    set_page_home_ready,
+    wait_for_timeout,
 )
 from desktop_py.core.fetcher_routes import CollectionRoute, FeedbackRoute
-from desktop_py.core.fetcher_runtime import record_runtime_failure, record_runtime_success, runtime_recycle_reason
+from desktop_py.core.fetcher_runtime import record_runtime_failure, record_runtime_success
 from desktop_py.core.fetcher_support import (
-    CancelledError,
     FetchError,
     FetchErrorCode,
     ensure_account_session_available,
     is_login_timeout_page,
     normalize_profile_dir,
-    recover_login_timeout_page,
 )
 from desktop_py.core.models import AccountConfig, FetchResult
-from desktop_py.core.store import account_output_file, write_fetch_result
+from desktop_py.core.store import write_fetch_result
 
 BATCH_RUNTIME_REFRESH_EVERY = 5
 
@@ -110,83 +117,6 @@ def _prepare_account_session_for_fetch(
     )
 
 
-def _page_current_account_name(page: Any) -> str:
-    try:
-        return str(getattr(page, "_current_account_name_cache", "") or "").strip()
-    except Exception:
-        return ""
-
-
-def _set_page_current_account_name(page: Any, account_name: str) -> None:
-    try:
-        setattr(page, "_current_account_name_cache", account_name.strip())
-    except Exception:
-        pass
-
-
-def _page_has_backend_session(page: Any) -> bool:
-    try:
-        current_url = str(getattr(page, "url", "") or "")
-    except Exception:
-        return False
-    return any(keyword in current_url for keyword in ("token=", "/wxamp/index/index", "pluginRedirect/gameFeedback"))
-
-
-def _wait_for_timeout(current_page: Any, wait_ms: int, _cancelled: CancelCheck | None = None) -> None:
-    current_page.wait_for_timeout(wait_ms)
-
-
-def _find_business_frame(page: Any) -> Any | None:
-    try:
-        frames = list(getattr(page, "frames", []) or [])
-    except Exception:
-        return None
-    for frame in frames:
-        try:
-            if str(getattr(frame, "name", "") or "").strip() == "js_iframe":
-                return frame
-            frame_url = str(getattr(frame, "url", "") or "")
-        except Exception:
-            continue
-        if "gamemp.weixin.qq.com/minigame/index.html" in frame_url:
-            return frame
-    return None
-
-
-def _click_first_visible_button(frame: Any) -> bool:
-    try:
-        buttons = frame.locator("button")
-        button_count = int(buttons.count())
-    except Exception:
-        return False
-    for index in range(button_count):
-        button = buttons.nth(index)
-        try:
-            is_visible = bool(
-                button.evaluate(
-                    """
-                    (element) => {
-                        const style = window.getComputedStyle(element);
-                        const text = (element.innerText || "").trim();
-                        return (
-                            style.display !== "none"
-                            && style.visibility !== "hidden"
-                            && element.offsetParent !== null
-                            && text.length > 0
-                        );
-                    }
-                    """
-                )
-            )
-        except Exception:
-            continue
-        if not is_visible:
-            continue
-        button.click(timeout=10000)
-        return True
-    return False
-
-
 def _collect_ios_refund_subject_captures(
     *,
     page: Any,
@@ -197,82 +127,15 @@ def _collect_ios_refund_subject_captures(
     fetch_paginated_refund_list_captures_fn: Callable[..., list[Any]] | None,
     is_cancelled: CancelCheck | None,
 ) -> list[Any]:
-    frame = _find_business_frame(page)
-    if frame is None:
-        log_fn(logger, "iOS退款问询未定位到业务 Frame，跳过主体切换。")
-        return captures
-
-    try:
-        frame.wait_for_selector(".drop-selected", timeout=10000)
-    except Exception:
-        return captures
-
-    working_captures = list(captures)
-    if callable(fetch_paginated_refund_list_captures_fn):
-        working_captures = fetch_paginated_refund_list_captures_fn(
-            page=page,
-            captures=working_captures,
-            logger=logger,
-            log_fn=log_fn,
-        )
-
-    try:
-        subject_options = frame.eval_on_selector_all(
-            ".dropdown-switch-item",
-            """(elements) => elements.map((element) => ({
-                title: (element.getAttribute("title") || "").trim(),
-                text: (element.textContent || "").trim(),
-            }))""",
-        )
-        current_subject = str(frame.eval_on_selector(".drop-selected", "element => element.value || ''") or "").strip()
-    except Exception:
-        return working_captures
-
-    if len(subject_options) <= 1:
-        return working_captures
-
-    expect_response = getattr(page, "expect_response", None)
-    for index, option in enumerate(subject_options):
-        title = str(option.get("title") or option.get("text") or "").strip()
-        if not title or title == current_subject:
-            continue
-        action_started = False
-
-        def trigger_search() -> None:
-            nonlocal action_started
-            action_started = True
-            frame.locator(".dropdown_switch").click(timeout=10000)
-            frame.wait_for_timeout(300)
-            frame.locator(".dropdown_data_item").nth(index).click(timeout=10000)
-            frame.wait_for_timeout(300)
-            if not _click_first_visible_button(frame):
-                raise FetchError("iOS退款问询页面未找到可点击的搜索按钮。")
-
-        if callable(expect_response):
-            try:
-                with expect_response(
-                    lambda response: "getiaprefundlist" in str(getattr(response, "url", "") or "").lower(),
-                    timeout=10000,
-                ):
-                    trigger_search()
-            except Exception:
-                if not action_started:
-                    trigger_search()
-        else:
-            trigger_search()
-
-        wait_or_cancel_fn(page, 1200, is_cancelled)
-        working_captures = list(captures)
-        if callable(fetch_paginated_refund_list_captures_fn):
-            working_captures = fetch_paginated_refund_list_captures_fn(
-                page=page,
-                captures=working_captures,
-                logger=logger,
-                log_fn=log_fn,
-            )
-        current_subject = title
-
-    return working_captures
+    return collect_ios_refund_subject_captures(
+        page=page,
+        captures=captures,
+        logger=logger,
+        log_fn=log_fn,
+        wait_or_cancel_fn=wait_or_cancel_fn,
+        fetch_paginated_refund_list_captures_fn=fetch_paginated_refund_list_captures_fn,
+        is_cancelled=is_cancelled,
+    )
 
 
 def _recover_timeout_page_if_needed(
@@ -283,28 +146,13 @@ def _recover_timeout_page_if_needed(
     safe_page_content_fn: Callable[..., str],
     is_cancelled: CancelCheck | None,
 ) -> bool:
-    return recover_login_timeout_page(
+    return recover_timeout_page_if_needed(
         page,
         logger=logger,
         log_fn=log_fn,
         safe_page_content_fn=safe_page_content_fn,
-        wait_or_cancel_fn=_wait_for_timeout,
         is_cancelled=is_cancelled,
     )
-
-
-def _set_page_home_ready(page: Any, ready: bool) -> None:
-    try:
-        setattr(page, "_home_ready_cache", bool(ready))
-    except Exception:
-        pass
-
-
-def _page_home_ready(page: Any) -> bool:
-    try:
-        return bool(getattr(page, "_home_ready_cache", False))
-    except Exception:
-        return False
 
 
 def resolve_bootstrap_url_impl(account: AccountConfig, output_dir: Path) -> str:
@@ -359,7 +207,7 @@ def _collect_refund_feedback_flow(
                 captures=current_captures,
                 logger=logger,
                 log_fn=log_fn,
-                wait_or_cancel_fn=_wait_for_timeout,
+                wait_or_cancel_fn=wait_for_timeout,
                 fetch_paginated_refund_list_captures_fn=fetch_paginated_refund_list_captures_fn,
                 is_cancelled=is_cancelled,
             )
@@ -555,100 +403,6 @@ def _build_refund_route_result(
     return _RefundRouteOutcome(route=route, flow=flow, result=result)
 
 
-def _parse_deadline_text(deadline_text: str) -> datetime | None:
-    value = deadline_text.strip()
-    if not value:
-        return None
-    try:
-        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        try:
-            return datetime.strptime(value, "%Y-%m-%d %H:%M")
-        except ValueError:
-            return None
-
-
-def _select_final_refund_outcome(outcomes: tuple[_RefundRouteOutcome, ...]) -> _RefundRouteOutcome:
-    detailed: list[tuple[datetime, int, _RefundRouteOutcome]] = []
-    for index, outcome in enumerate(outcomes):
-        parsed = _parse_deadline_text(outcome.result.deadline_text)
-        if parsed is not None:
-            detailed.append((parsed, index, outcome))
-    if detailed:
-        detailed.sort(key=lambda item: (item[0], item[1]))
-        return detailed[0][2]
-    return outcomes[0]
-
-
-def _ensure_sentence(text: str) -> str:
-    value = text.strip()
-    if not value:
-        return ""
-    if value.endswith(("。", "！", "？", ".", "!", "?")):
-        return value
-    return f"{value}。"
-
-
-def _build_success_log_lines(
-    *,
-    notification_outcome: dict[str, Any],
-    refund_outcomes: tuple[_RefundRouteOutcome, ...],
-) -> list[str]:
-    lines: list[str] = []
-    notification_summary = str(notification_outcome.get("summary", "") or "").strip()
-    if notification_summary:
-        lines.append(_ensure_sentence(notification_summary))
-    for outcome in refund_outcomes:
-        if outcome.route.step_label == "退款反馈页":
-            if outcome.result.deadline_text.strip():
-                lines.append(f"未成年退款申请处理截止时间：{outcome.result.deadline_text.strip()}。")
-            else:
-                lines.append("未成年退款申请截止时间内无待处理。")
-        elif outcome.route.step_label == "iOS退款问询":
-            if outcome.result.deadline_text.strip():
-                lines.append(f"IOS退款问询处理截止时间：{outcome.result.deadline_text.strip()}。")
-            else:
-                lines.append("IOS退款问询当前无待处理申请。")
-    return lines
-
-
-def _log_fetch_success_summary(
-    *,
-    account: AccountConfig,
-    logger: Logger | None,
-    log_fn: LogFn,
-    notification_outcome: dict[str, Any],
-    refund_outcomes: tuple[_RefundRouteOutcome, ...],
-) -> None:
-    lines = _build_success_log_lines(
-        notification_outcome=notification_outcome,
-        refund_outcomes=refund_outcomes,
-    )
-    if not lines:
-        return
-    summary = "\n".join(f"{index}.{line}" for index, line in enumerate(lines, start=1))
-    log_fn(logger, f"账号 {account.name} 抓取成功：\n{summary}")
-
-
-def _default_notification_outcome() -> dict[str, Any]:
-    return {
-        "ok": False,
-        "notifications": [],
-        "summary": "",
-        "page_url": "",
-    }
-
-
-def _default_transaction_complaint_outcome() -> dict[str, Any]:
-    return {
-        "ok": True,
-        "enabled": False,
-        "complaints": [],
-        "summary": "",
-        "page_url": "",
-    }
-
-
 def _build_pipeline_context(
     *,
     account_output_dir_fn: Callable[[str], Path],
@@ -729,73 +483,25 @@ def _collect_collection_outcomes(
     return outcomes
 
 
-def _compose_fetch_result(
-    *,
-    manifest: FetchRunManifest,
-    pipeline_context: PipelineContext,
-    page: Any,
-    context: Any,
-    account: AccountConfig,
-    output_dir: Path,
-    profile_dir: str,
-    refund_outcomes: tuple[_RefundRouteOutcome, ...],
-    notification_outcome: dict[str, Any],
-    transaction_complaint_outcome: dict[str, Any],
-    logger: Logger | None,
-    is_cancelled: CancelCheck | None,
-) -> tuple[FetchResult, dict[str, Any]]:
-    if transaction_complaint_outcome.get("enabled"):
-        with fetch_step(manifest, "跳过退款反馈页"):
-            result = FetchResult(
-                account_name=account.name,
-                ok=bool(transaction_complaint_outcome.get("ok", True)),
-                actual_account_name=account.name,
-                page_url=str(transaction_complaint_outcome.get("page_url", "") or ""),
-            )
-    else:
-        assert refund_outcomes
-        result = _select_final_refund_outcome(refund_outcomes).result
-
-    if result.actual_account_name.strip():
-        try:
-            setattr(page, "_current_account_name_cache", result.actual_account_name.strip())
-        except Exception:
-            pass
-
-    notification_summary = str(notification_outcome.get("summary", "") or "").strip()
-    if notification_outcome.get("notifications") or not notification_outcome.get("ok", True):
-        result.note = "；".join(item for item in [result.note, notification_summary] if item)
-    transaction_complaint_summary = str(transaction_complaint_outcome.get("summary", "") or "").strip()
-    if transaction_complaint_outcome.get("enabled") and (
-        transaction_complaint_summary or not transaction_complaint_outcome.get("ok", True)
-    ):
-        result.note = "；".join(item for item in [result.note, transaction_complaint_summary] if item)
-
-    result_extra: dict[str, Any] = {}
-    if notification_outcome.get("notifications"):
-        result_extra["notifications"] = notification_outcome["notifications"]
-    if transaction_complaint_outcome.get("enabled"):
-        result_extra["transaction_complaints"] = transaction_complaint_outcome.get("complaints", [])
-    return result, result_extra
-
-
-def _persist_fetch_run(
-    manifest: FetchRunManifest,
-    *,
+def _write_fetch_result_payload(
     account_name: str,
-    result: FetchResult | None = None,
-    error: Exception | None = None,
+    result: FetchResult,
+    *,
+    result_extra: dict[str, Any],
+    notification_outcome: dict[str, Any],
 ) -> None:
-    finish_fetch_run(manifest, result=result, error=error)
-    write_fetch_manifest(account_name, manifest)
+    if result_extra:
+        write_fetch_result(account_name, result, extra=result_extra)
+    elif not notification_outcome.get("ok", True) and str(notification_outcome.get("summary", "") or "").strip():
+        write_fetch_result(account_name, result)
 
 
-def _write_batch_diagnostic_index_safely(index: BatchDiagnosticIndex, logger: Logger | None) -> None:
+def _write_batch_diagnostic_index_safely(index: Any, logger: Logger | None) -> None:
     try:
         write_batch_diagnostic_index(index)
     except Exception as exc:
         if logger is not None:
-            logger(f"写入批量诊断索引失败：{exc}")
+            logger(f"BATCH 写入批量诊断索引失败：{exc}")
 
 
 def _fetch_account_in_page_with_context(
@@ -815,8 +521,8 @@ def _fetch_account_in_page_with_context(
         return None
 
     captures: list[Any] = []
-    notification_outcome = _default_notification_outcome()
-    transaction_complaint_outcome = _default_transaction_complaint_outcome()
+    notification_outcome = default_notification_outcome()
+    transaction_complaint_outcome = default_transaction_complaint_outcome()
     try:
         with fetch_step(manifest, "注册响应监听"):
             captures, cleanup_response_capture = pipeline_context.register_response_capture_fn(
@@ -824,13 +530,13 @@ def _fetch_account_in_page_with_context(
             )
 
         bootstrap_url = pipeline_context.resolve_bootstrap_url_fn(account, output_dir)
-        if not _page_has_backend_session(page):
+        if not page_has_backend_session(page):
             with fetch_step(manifest, "进入微信后台", detail=bootstrap_url):
                 page.goto(bootstrap_url, wait_until="domcontentloaded", timeout=60000)
                 pipeline_context.wait_for_url_contains_fn(
                     page, ("token=", "/wxamp/index/index"), timeout_ms=4000, is_cancelled=is_cancelled
                 )
-                _set_page_home_ready(page, bootstrap_url == account.home_url)
+                set_page_home_ready(page, bootstrap_url == account.home_url)
 
         with fetch_step(manifest, "检查并恢复登录超时页"):
             if is_login_timeout_page(page, safe_page_content_fn=pipeline_context.safe_page_content_fn):
@@ -861,16 +567,16 @@ def _fetch_account_in_page_with_context(
             )
 
         with fetch_step(manifest, "确认当前账号"):
-            current_account_name = _page_current_account_name(page)
+            current_account_name = page_current_account_name(page)
             if not current_account_name:
                 current_account_name = pipeline_context.extract_current_account_name_fn(page)
                 if current_account_name:
-                    _set_page_current_account_name(page, current_account_name)
+                    set_page_current_account_name(page, current_account_name)
 
         with fetch_step(manifest, "切换目标账号", detail=account.name):
             if pipeline_context.should_switch_for_account_fn(account, current_account_name):
                 pipeline_context.switch_to_account_fn(page, account.name, account.home_url, logger)
-                _set_page_current_account_name(page, account.name)
+                set_page_current_account_name(page, account.name)
             elif account.is_entry_account:
                 pipeline_context.log_fn(logger, "入口账号使用当前共享会话，不执行切换账号。")
             else:
@@ -885,8 +591,8 @@ def _fetch_account_in_page_with_context(
             logger=logger,
             is_cancelled=is_cancelled,
         )
-        notification_outcome = collection_outcomes.get("通知中心", _default_notification_outcome())
-        transaction_complaint_outcome = collection_outcomes.get("交易投诉", _default_transaction_complaint_outcome())
+        notification_outcome = collection_outcomes.get("通知中心", default_notification_outcome())
+        transaction_complaint_outcome = collection_outcomes.get("交易投诉", default_transaction_complaint_outcome())
 
         refund_outcomes: tuple[_RefundRouteOutcome, ...] = ()
         if not transaction_complaint_outcome.get("enabled"):
@@ -928,290 +634,33 @@ def _fetch_account_in_page_with_context(
                 )
             refund_outcomes = tuple(collected_refund_outcomes)
 
-        result, result_extra = _compose_fetch_result(
-            manifest=manifest,
-            pipeline_context=pipeline_context,
+        result, result_extra = compose_fetch_result(
             page=page,
-            context=context,
-            account=account,
-            output_dir=output_dir,
-            profile_dir=profile_dir,
+            account_name=account.name,
             refund_outcomes=refund_outcomes,
             notification_outcome=notification_outcome,
             transaction_complaint_outcome=transaction_complaint_outcome,
-            logger=logger,
-            is_cancelled=is_cancelled,
+            set_page_current_account_name_fn=set_page_current_account_name,
         )
-        if result_extra:
-            write_fetch_result(account.name, result, extra=result_extra)
-        elif not notification_outcome.get("ok", True) and str(notification_outcome.get("summary", "") or "").strip():
-            write_fetch_result(account.name, result)
+        _write_fetch_result_payload(
+            account.name,
+            result,
+            result_extra=result_extra,
+            notification_outcome=notification_outcome,
+        )
         if result.ok:
-            _log_fetch_success_summary(
-                account=account,
+            log_fetch_success_summary(
+                account_name=account.name,
                 logger=logger,
                 log_fn=pipeline_context.log_fn,
                 notification_outcome=notification_outcome,
                 refund_outcomes=refund_outcomes,
             )
-        _set_page_home_ready(page, False)
-        _persist_fetch_run(manifest, account_name=account.name, result=result)
+        set_page_home_ready(page, False)
+        persist_fetch_run(manifest, account_name=account.name, result=result)
         return cast(FetchResult, result)
     except Exception as exc:
-        _persist_fetch_run(manifest, account_name=account.name, error=exc)
-        raise
-    finally:
-        cleanup_response_capture()
-
-
-def _fetch_account_in_page_impl_legacy(
-    page: Any,
-    context: Any,
-    account: AccountConfig,
-    logger: Logger | None = None,
-    profile_dir: str = "",
-    is_cancelled: CancelCheck | None = None,
-    *,
-    account_output_dir_fn: Callable[[str], Path],
-    register_response_capture_fn: Callable[..., tuple[list[Any], Callable[[], None]]],
-    capture_response_payload_fn: Callable[..., Any],
-    resolve_bootstrap_url_fn: Callable[[AccountConfig, Path], str],
-    wait_for_url_contains_fn: Callable[..., Any],
-    extract_current_account_name_fn: Callable[[Any], str],
-    should_switch_for_account_fn: Callable[[AccountConfig, str], bool],
-    switch_to_account_fn: Callable[..., Any],
-    log_fn: LogFn,
-    open_feedback_page_fn: Callable[..., str],
-    build_feedback_url_fn: Callable[..., str],
-    wait_for_iframe_ready_fn: Callable[..., Any],
-    resolve_frame_locator_fn: Callable[..., Any],
-    business_iframe_selector_fn: Callable[..., str],
-    safe_page_content_fn: Callable[..., str],
-    fetch_notifications_fn: Callable[..., dict[str, Any]] | None = None,
-    fetch_transaction_complaints_fn: Callable[..., dict[str, Any]] | None = None,
-    fetch_paginated_refund_list_captures_fn: Callable[..., list[Any]] | None = None,
-    is_empty_refund_list_fn: Callable[..., bool],
-    confirm_empty_refund_list_fn: Callable[..., tuple[bool, str]],
-    build_empty_refund_result_fn: Callable[..., FetchResult],
-    build_detail_result_fn: Callable[..., FetchResult],
-    build_ios_refund_feedback_url_fn: Callable[..., str] | None = None,
-) -> FetchResult:
-    output_dir = account_output_dir_fn(account.name)
-    manifest = start_fetch_run(account, profile_dir=profile_dir, output_dir=str(output_dir))
-
-    def cleanup_response_capture() -> None:
-        return None
-
-    captures: list[Any] = []
-    notification_outcome = {
-        "ok": False,
-        "notifications": [],
-        "summary": "",
-        "page_url": "",
-    }
-    transaction_complaint_outcome = {
-        "ok": True,
-        "enabled": False,
-        "complaints": [],
-        "summary": "",
-        "page_url": "",
-    }
-    refund_outcomes: tuple[_RefundRouteOutcome, ...] = ()
-
-    try:
-        with fetch_step(manifest, "注册响应监听"):
-            captures, cleanup_response_capture = register_response_capture_fn(page, capture_response_payload_fn)
-
-        bootstrap_url = resolve_bootstrap_url_fn(account, output_dir)
-        if not _page_has_backend_session(page):
-            with fetch_step(manifest, "进入微信后台", detail=bootstrap_url):
-                page.goto(bootstrap_url, wait_until="domcontentloaded", timeout=60000)
-                wait_for_url_contains_fn(
-                    page, ("token=", "/wxamp/index/index"), timeout_ms=4000, is_cancelled=is_cancelled
-                )
-                _set_page_home_ready(page, bootstrap_url == account.home_url)
-
-        with fetch_step(manifest, "检查并恢复登录超时页"):
-            if is_login_timeout_page(page, safe_page_content_fn=safe_page_content_fn):
-                recovered = _recover_timeout_page_if_needed(
-                    page,
-                    logger=logger,
-                    log_fn=log_fn,
-                    safe_page_content_fn=safe_page_content_fn,
-                    is_cancelled=is_cancelled,
-                )
-                if recovered:
-                    wait_for_url_contains_fn(
-                        page, ("token=", "/wxamp/index/index"), timeout_ms=4000, is_cancelled=is_cancelled
-                    )
-
-        if "token=" not in page.url and bootstrap_url == account.home_url:
-            raise FetchError(
-                "当前登录态未自动跳入后台页，且没有可复用的历史反馈页地址，无法启动自动切换账号。",
-                code=FetchErrorCode.MISSING_TOKEN,
-                evidence=[
-                    {
-                        "kind": "page",
-                        "label": "后台入口地址",
-                        "summary": "进入后台后未发现 token，且没有历史反馈页地址可复用。",
-                        "metadata": {"page_url": str(getattr(page, "url", "") or ""), "bootstrap_url": bootstrap_url},
-                    }
-                ],
-            )
-
-        with fetch_step(manifest, "确认当前账号"):
-            current_account_name = _page_current_account_name(page)
-            if not current_account_name:
-                current_account_name = extract_current_account_name_fn(page)
-                if current_account_name:
-                    _set_page_current_account_name(page, current_account_name)
-
-        with fetch_step(manifest, "切换目标账号", detail=account.name):
-            if should_switch_for_account_fn(account, current_account_name):
-                switch_to_account_fn(page, account.name, account.home_url, logger)
-                _set_page_current_account_name(page, account.name)
-            elif account.is_entry_account:
-                log_fn(logger, "入口账号使用当前共享会话，不执行切换账号。")
-            else:
-                log_fn(logger, f"账号 {account.name} 已处于当前会话，跳过切换步骤。")
-
-        if callable(fetch_notifications_fn):
-            with fetch_step(manifest, "采集通知中心"):
-                notification_outcome = fetch_notifications_fn(
-                    page,
-                    account=account,
-                    logger=logger,
-                    output_dir=output_dir,
-                    log_fn=log_fn,
-                    wait_for_url_contains_fn=wait_for_url_contains_fn,
-                    safe_page_content_fn=safe_page_content_fn,
-                    is_cancelled=is_cancelled,
-                )
-
-        if callable(fetch_transaction_complaints_fn):
-            with fetch_step(manifest, "采集交易投诉"):
-                transaction_complaint_outcome = fetch_transaction_complaints_fn(
-                    page,
-                    account=account,
-                    logger=logger,
-                    output_dir=output_dir,
-                    log_fn=log_fn,
-                    wait_for_url_contains_fn=wait_for_url_contains_fn,
-                    safe_page_content_fn=safe_page_content_fn,
-                    is_cancelled=is_cancelled,
-                )
-
-        if transaction_complaint_outcome.get("enabled"):
-            with fetch_step(manifest, "跳过退款反馈页"):
-                result = FetchResult(
-                    account_name=account.name,
-                    ok=bool(transaction_complaint_outcome.get("ok", True)),
-                    actual_account_name=account.name,
-                    page_url=str(transaction_complaint_outcome.get("page_url", "") or ""),
-                )
-        else:
-            refund_outcomes_list: list[_RefundRouteOutcome] = []
-            refund_routes = [
-                FeedbackRoute(name="退款反馈页", step_label="退款反馈页", build_feedback_url_fn=build_feedback_url_fn)
-            ]
-            if callable(build_ios_refund_feedback_url_fn):
-                refund_routes.append(
-                    FeedbackRoute(
-                        name="iOS退款问询",
-                        step_label="iOS退款问询",
-                        build_feedback_url_fn=build_ios_refund_feedback_url_fn,
-                    )
-                )
-            for route in refund_routes:
-                flow = _collect_refund_feedback_flow(
-                    manifest=manifest,
-                    page=page,
-                    account=account,
-                    output_dir=output_dir,
-                    captures=captures,
-                    logger=logger,
-                    log_fn=log_fn,
-                    open_feedback_page_fn=open_feedback_page_fn,
-                    build_feedback_url_fn=route.build_feedback_url_fn,
-                    wait_for_iframe_ready_fn=wait_for_iframe_ready_fn,
-                    resolve_frame_locator_fn=resolve_frame_locator_fn,
-                    business_iframe_selector_fn=business_iframe_selector_fn,
-                    safe_page_content_fn=safe_page_content_fn,
-                    fetch_paginated_refund_list_captures_fn=fetch_paginated_refund_list_captures_fn,
-                    is_empty_refund_list_fn=is_empty_refund_list_fn,
-                    confirm_empty_refund_list_fn=confirm_empty_refund_list_fn,
-                    is_cancelled=is_cancelled,
-                    step_label=route.step_label,
-                )
-                if flow.empty_confirmed:
-                    with fetch_step(manifest, f"生成{route.step_label}空列表采集结果"):
-                        route_result = build_empty_refund_result_fn(
-                            page=page,
-                            context=context,
-                            account=account,
-                            output_dir=output_dir,
-                            frame_locator=flow.frame_locator,
-                            list_text=flow.confirmed_list_text,
-                            captures=flow.captures,
-                            feedback_url=flow.feedback_url,
-                            profile_dir=profile_dir,
-                            logger=logger,
-                            safe_page_content_fn=safe_page_content_fn,
-                            extract_current_account_name_fn=extract_current_account_name_fn,
-                            is_cancelled=is_cancelled,
-                        )
-                else:
-                    with fetch_step(manifest, f"生成{route.step_label}详情页采集结果"):
-                        route_result = build_detail_result_fn(
-                            page=page,
-                            context=context,
-                            account=account,
-                            output_dir=output_dir,
-                            frame_locator=flow.frame_locator,
-                            captures=flow.captures,
-                            feedback_url=flow.feedback_url,
-                            profile_dir=profile_dir,
-                            logger=logger,
-                            safe_page_content_fn=safe_page_content_fn,
-                            extract_current_account_name_fn=extract_current_account_name_fn,
-                        )
-                refund_outcomes_list.append(_RefundRouteOutcome(route=route, flow=flow, result=route_result))
-            refund_outcomes = tuple(refund_outcomes_list)
-            result = _select_final_refund_outcome(refund_outcomes).result
-        if result.actual_account_name.strip():
-            _set_page_current_account_name(page, result.actual_account_name)
-        notification_summary = str(notification_outcome.get("summary", "") or "").strip()
-        if notification_outcome.get("notifications") or not notification_outcome.get("ok", True):
-            result.note = "；".join(item for item in [result.note, notification_summary] if item)
-        transaction_complaint_summary = str(transaction_complaint_outcome.get("summary", "") or "").strip()
-        if transaction_complaint_outcome.get("enabled") and (
-            transaction_complaint_summary or not transaction_complaint_outcome.get("ok", True)
-        ):
-            result.note = "；".join(item for item in [result.note, transaction_complaint_summary] if item)
-        result_extra: dict[str, Any] = {}
-        if notification_outcome.get("notifications"):
-            result_extra["notifications"] = notification_outcome["notifications"]
-        if transaction_complaint_outcome.get("enabled"):
-            result_extra["transaction_complaints"] = transaction_complaint_outcome.get("complaints", [])
-        if result_extra:
-            write_fetch_result(account.name, result, extra=result_extra)
-        elif not notification_outcome.get("ok", True) and notification_summary:
-            write_fetch_result(account.name, result)
-        if result.ok:
-            _log_fetch_success_summary(
-                account=account,
-                logger=logger,
-                log_fn=log_fn,
-                notification_outcome=notification_outcome,
-                refund_outcomes=refund_outcomes if not transaction_complaint_outcome.get("enabled") else (),
-            )
-        _set_page_home_ready(page, False)
-        finish_fetch_run(manifest, result=result)
-        write_fetch_manifest(account.name, manifest)
-        return cast(FetchResult, result)
-    except Exception as exc:
-        finish_fetch_run(manifest, error=exc)
-        write_fetch_manifest(account.name, manifest)
+        persist_fetch_run(manifest, account_name=account.name, error=exc)
         raise
     finally:
         cleanup_response_capture()
@@ -1385,133 +834,31 @@ def fetch_accounts_batch_impl(
     should_invalidate_runtime_fn: Callable[[Exception], bool],
     batch_runtime_refresh_every: int = BATCH_RUNTIME_REFRESH_EVERY,
 ) -> list[FetchResult]:
-    normalized_profile_dir = normalize_profile_dir(
-        profile_dir,
+    return run_fetch_accounts_batch(
+        accounts,
+        headless=headless,
+        logger=logger,
+        progress=progress,
+        profile_dir=profile_dir,
+        is_cancelled=is_cancelled,
+        sync_playwright_fn=sync_playwright_fn,
+        path_exists_fn=path_exists_fn,
         validate_shared_browser_profile_dir_fn=validate_shared_browser_profile_dir_fn,
+        create_browser_context_fn=create_browser_context_fn,
+        prepare_account_session_fn=lambda account, logger, profile_dir, headless: _prepare_account_session_for_fetch(
+            account,
+            logger=logger,
+            profile_dir=profile_dir,
+            headless=headless,
+            log_fn=lambda current_logger, message: current_logger(message) if current_logger else None,
+            validate_account_state_fn=validate_account_state_fn,
+            renew_account_state_fn=renew_account_state_fn,
+        ),
+        fetch_account_in_page_fn=fetch_account_in_page_fn,
+        acquire_group_runtime_fn=acquire_group_runtime_fn,
+        invalidate_group_runtime_fn=invalidate_group_runtime_fn,
+        update_runtime_current_account_name_fn=update_runtime_current_account_name_fn,
+        should_invalidate_runtime_fn=should_invalidate_runtime_fn,
+        write_batch_diagnostic_index_safely_fn=_write_batch_diagnostic_index_safely,
+        batch_runtime_refresh_every=batch_runtime_refresh_every,
     )
-    enabled_accounts = [account for account in accounts if account.enabled and not account.is_entry_account]
-    if not enabled_accounts:
-        return []
-
-    grouped_accounts: dict[str, list[AccountConfig]] = {}
-    for account in enabled_accounts:
-        group_key = normalized_profile_dir or account.state_path
-        grouped_accounts.setdefault(group_key, []).append(account)
-
-    results: list[FetchResult] = []
-    batch_index = start_batch_diagnostic_index(
-        total_accounts=len(enabled_accounts),
-        profile_dir=normalized_profile_dir,
-    )
-    try:
-        for group_accounts in grouped_accounts.values():
-            if is_cancelled is not None and is_cancelled():
-                raise CancelledError("任务已取消")
-            primary_account = group_accounts[0]
-            ensure_account_session_available(
-                primary_account,
-                normalized_profile_dir,
-                path_exists_fn=path_exists_fn,
-                error_cls=FetchError,
-            )
-            _prepare_account_session_for_fetch(
-                primary_account,
-                logger=logger,
-                profile_dir=normalized_profile_dir,
-                headless=headless,
-                log_fn=lambda current_logger, message: current_logger(message) if current_logger else None,
-                validate_account_state_fn=validate_account_state_fn,
-                renew_account_state_fn=renew_account_state_fn,
-            )
-            runtime = acquire_group_runtime_fn(
-                primary_account,
-                headless=headless,
-                profile_dir=normalized_profile_dir,
-                sync_playwright_fn=sync_playwright_fn,
-                create_browser_context_fn=create_browser_context_fn,
-                logger=logger,
-                is_cancelled=is_cancelled,
-            )
-            try:
-                for index, account in enumerate(group_accounts):
-                    if is_cancelled is not None and is_cancelled():
-                        raise CancelledError("任务已取消")
-                    has_next_account = index < len(group_accounts) - 1
-                    account_started = time.monotonic()
-                    account_error: BaseException | None = None
-                    try:
-                        result = fetch_account_in_page_fn(
-                            runtime.page,
-                            runtime.context,
-                            account,
-                            logger,
-                            normalized_profile_dir,
-                            is_cancelled,
-                        )
-                        if result.actual_account_name.strip():
-                            update_runtime_current_account_name_fn(runtime, result.actual_account_name)
-                        record_runtime_success(runtime)
-                    except CancelledError as exc:
-                        add_batch_diagnostic_account(
-                            batch_index,
-                            account_name=account.name,
-                            error=exc,
-                            duration_ms=int((time.monotonic() - account_started) * 1000),
-                            manifest_path=str(account_output_file(account.name, "fetch_manifest.json")),
-                            result_path=str(account_output_file(account.name, "result.json")),
-                        )
-                        raise
-                    except Exception as exc:
-                        account_error = exc
-                        record_runtime_failure(runtime, exc)
-                        if should_invalidate_runtime_fn(exc):
-                            invalidate_group_runtime_fn(runtime, str(exc))
-                            if has_next_account:
-                                runtime = acquire_group_runtime_fn(
-                                    primary_account,
-                                    headless=headless,
-                                    profile_dir=normalized_profile_dir,
-                                    sync_playwright_fn=sync_playwright_fn,
-                                    create_browser_context_fn=create_browser_context_fn,
-                                    logger=logger,
-                                    is_cancelled=is_cancelled,
-                                )
-                        result = FetchResult(account_name=account.name, ok=False, note=str(exc))
-                    add_batch_diagnostic_account(
-                        batch_index,
-                        account_name=account.name,
-                        result=result,
-                        error=account_error,
-                        duration_ms=int((time.monotonic() - account_started) * 1000),
-                        manifest_path=str(account_output_file(account.name, "fetch_manifest.json")),
-                        result_path=str(account_output_file(account.name, "result.json")),
-                    )
-                    if is_cancelled is not None and is_cancelled():
-                        raise CancelledError("任务已取消")
-                    results.append(result)
-                    if progress is not None:
-                        progress(result)
-                    recycle_reason = runtime_recycle_reason(runtime, max_processed_count=batch_runtime_refresh_every)
-                    if recycle_reason and index < len(group_accounts) - 1:
-                        invalidate_group_runtime_fn(runtime, recycle_reason)
-                        runtime = acquire_group_runtime_fn(
-                            primary_account,
-                            headless=headless,
-                            profile_dir=normalized_profile_dir,
-                            sync_playwright_fn=sync_playwright_fn,
-                            create_browser_context_fn=create_browser_context_fn,
-                            logger=logger,
-                            is_cancelled=is_cancelled,
-                        )
-                if is_cancelled is not None and is_cancelled():
-                    raise CancelledError("任务已取消")
-            finally:
-                if runtime.valid:
-                    invalidate_group_runtime_fn(runtime)
-    except Exception as exc:
-        finish_batch_diagnostic_index(batch_index, error=exc)
-        _write_batch_diagnostic_index_safely(batch_index, logger)
-        raise
-    finish_batch_diagnostic_index(batch_index)
-    _write_batch_diagnostic_index_safely(batch_index, logger)
-    return results

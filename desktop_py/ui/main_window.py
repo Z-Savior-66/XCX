@@ -277,7 +277,7 @@ class MainWindow(QMainWindow):
             append_log=self.append_log,
             update_action_buttons=self._update_action_buttons,
             set_status_text=self._set_status_text,
-            status_message=lambda message, timeout: self.statusBar().showMessage(message, timeout),
+            status_message=self._show_status_message,
         )
         self._summary_labels: dict[str, QLabel] = {}
         self._status_label: QLabel | None = None
@@ -552,15 +552,7 @@ class MainWindow(QMainWindow):
     def _run_auto_renew(self) -> None:
         run_auto_renew_impl(
             self,
-            renew_account_state_fn=lambda account, log, profile_dir, headless, switch_account_names=None: (
-                renew_account_state(
-                    account,
-                    log,
-                    profile_dir,
-                    headless,
-                    switch_account_names,
-                )
-            ),
+            renew_account_state_fn=self._call_renew_account_state,
             close_all_group_runtimes_fn=close_all_group_runtimes,
             save_settings_fn=save_settings,
         )
@@ -575,7 +567,7 @@ class MainWindow(QMainWindow):
         return build_fetch_job_impl(
             self,
             enabled_accounts,
-            fetch_accounts_batch_fn=lambda *args, **kwargs: fetch_accounts_batch(*args, **kwargs),
+            fetch_accounts_batch_fn=self._call_fetch_accounts_batch,
         )
 
     def _mark_fetch_progress(self, result: FetchResult) -> None:
@@ -610,8 +602,8 @@ class MainWindow(QMainWindow):
             webhook,
             append_batch_log=append_batch_log,
             results=results,
-            build_summary_fn=lambda results: build_summary(results),
-            send_feishu_text_fn=lambda target_webhook, content: send_feishu_text(target_webhook, content),
+            build_summary_fn=self._build_summary_text,
+            send_feishu_text_fn=self._send_feishu_summary,
             fetch_result_cls=FetchResult,
             actual_account_prefix=ACTUAL_ACCOUNT_PREFIX,
             save_accounts_fn=save_accounts,
@@ -647,3 +639,31 @@ class MainWindow(QMainWindow):
 
     def _set_status_text(self, message: str) -> None:
         set_status_text_impl(self, message)
+
+    def _show_status_message(self, message: str, timeout: int) -> None:
+        self.statusBar().showMessage(message, timeout)
+
+    def _call_renew_account_state(
+        self,
+        account: AccountConfig,
+        log,
+        profile_dir: str,
+        headless: bool,
+        switch_account_names: list[str] | None = None,
+    ) -> bool:
+        return renew_account_state(
+            account,
+            log,
+            profile_dir,
+            headless,
+            switch_account_names,
+        )
+
+    def _call_fetch_accounts_batch(self, *args, **kwargs):
+        return fetch_accounts_batch(*args, **kwargs)
+
+    def _build_summary_text(self, results: list[FetchResult]) -> str:
+        return build_summary(results)
+
+    def _send_feishu_summary(self, webhook: str, content: str) -> None:
+        send_feishu_text(webhook, content)
