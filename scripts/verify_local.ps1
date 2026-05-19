@@ -2,7 +2,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$cacheRoot = Join-Path $projectRoot ".cache"
 $env:QT_QPA_PLATFORM = "offscreen"
+$env:PYTHONPYCACHEPREFIX = Join-Path $cacheRoot "pycache"
+New-Item -ItemType Directory -Path $env:PYTHONPYCACHEPREFIX -Force | Out-Null
 
 $verificationSteps = @(
     @{

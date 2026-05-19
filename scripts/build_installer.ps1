@@ -85,8 +85,11 @@ function Resolve-OfflineRuntimeSource {
 }
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$cacheRoot = Join-Path $projectRoot ".cache"
+$buildCacheRoot = Join-Path $cacheRoot "build"
 $distRoot = Join-Path $projectRoot "dist"
-$installerSourceRoot = Join-Path $projectRoot "build\installer-source"
+$installerSourceRoot = Join-Path $buildCacheRoot "installer-source"
+$pyInstallerWorkRoot = Join-Path $buildCacheRoot "pyinstaller"
 $appName = "小程序工具"
 $appVersion = Resolve-AppVersion -ProjectRoot $projectRoot
 $appPublisher = "本地构建"
@@ -123,6 +126,9 @@ try {
     if (Test-Path $installerSourceRoot) {
         Remove-Item -LiteralPath $installerSourceRoot -Recurse -Force
     }
+    if (Test-Path $pyInstallerWorkRoot) {
+        Remove-Item -LiteralPath $pyInstallerWorkRoot -Recurse -Force
+    }
     New-Item -ItemType Directory -Path $installerSourceRoot -Force | Out-Null
 
     Write-Host "开始构建安装包..."
@@ -132,7 +138,7 @@ try {
         --windowed `
         --onedir `
         --distpath $installerSourceRoot `
-        --workpath (Join-Path $projectRoot "build\pyinstaller") `
+        --workpath $pyInstallerWorkRoot `
         --specpath $installerSourceRoot `
         --name $appName `
         --icon $appIconPath `

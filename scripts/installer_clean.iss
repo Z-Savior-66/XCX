@@ -11,7 +11,7 @@
   #define MyAppExeName "小程序工具.exe"
 #endif
 #ifndef MySourceDir
-  #define MySourceDir "..\build\installer-source\小程序工具"
+  #define MySourceDir "..\.cache\build\installer-source\小程序工具"
 #endif
 #ifndef MyOutputBaseFilename
   #define MyOutputBaseFilename "小程序工具"

@@ -20,6 +20,17 @@ class BuildInstallerScriptTestCase(unittest.TestCase):
         self.assertIn("--collect-all playwright", content)
         self.assertIn("_internal\\playwright\\driver\\package\\.local-browsers", content)
 
+    def test_build_script_places_temporary_outputs_under_cache_root(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+        installer_content = INSTALLER_ISS_PATH.read_text(encoding="utf-8")
+
+        self.assertIn('$cacheRoot = Join-Path $projectRoot ".cache"', content)
+        self.assertIn('$buildCacheRoot = Join-Path $cacheRoot "build"', content)
+        self.assertIn('$installerSourceRoot = Join-Path $buildCacheRoot "installer-source"', content)
+        self.assertIn('$pyInstallerWorkRoot = Join-Path $buildCacheRoot "pyinstaller"', content)
+        self.assertIn("--workpath $pyInstallerWorkRoot", content)
+        self.assertIn('MySourceDir "..\\.cache\\build\\installer-source\\小程序工具"', installer_content)
+
     def test_build_script_requires_clean_mode(self):
         content = SCRIPT_PATH.read_text(encoding="utf-8")
 

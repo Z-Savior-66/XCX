@@ -21,6 +21,13 @@ class VerifyLocalScriptTestCase(unittest.TestCase):
         self.assertIn('Arguments = @("-m", "mypy")', content)
         self.assertIn('Arguments = @("-m", "pytest", "py_tests", "-q")', content)
 
+    def test_script_places_python_bytecode_cache_under_cache_root(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn('$cacheRoot = Join-Path $projectRoot ".cache"', content)
+        self.assertIn('$env:PYTHONPYCACHEPREFIX = Join-Path $cacheRoot "pycache"', content)
+        self.assertIn("New-Item -ItemType Directory -Path $env:PYTHONPYCACHEPREFIX -Force", content)
+
 
 if __name__ == "__main__":
     unittest.main()

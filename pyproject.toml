@@ -1,8 +1,10 @@
 [tool.ruff]
 target-version = "py314"
 line-length = 120
+cache-dir = ".cache/ruff"
 exclude = [
     ".git",
+    ".cache",
     ".codex",
     ".vscode",
     "__pycache__",
@@ -24,8 +26,13 @@ quote-style = "double"
 indent-style = "space"
 line-ending = "lf"
 docstring-code-format = false
+
+[tool.pytest.ini_options]
+cache_dir = ".cache/pytest"
+
 [tool.mypy]
 python_version = "3.14"
+cache_dir = ".cache/mypy"
 files = [
   "desktop_py/core/store.py",
   "desktop_py/core/browser_runtime.py",
