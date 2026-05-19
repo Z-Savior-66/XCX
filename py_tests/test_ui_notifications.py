@@ -224,7 +224,6 @@ class UiNotificationTestCase(UiTestBase):
             window.send_summary()
 
         retry_job = retry_run_thread.call_args.args[0]
-        captured = {}
         with patch("desktop_py.ui.main_window.send_feishu_text") as mock_send:
             retry_job(lambda _message: None)
 

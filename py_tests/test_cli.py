@@ -194,5 +194,6 @@ class CliTestCase(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "发送失败"):
                 desktop_py_cli.main()
 
+
 if __name__ == "__main__":
     unittest.main()

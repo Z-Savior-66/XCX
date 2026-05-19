@@ -33,5 +33,6 @@ class FetchSummaryServiceTestCase(unittest.TestCase):
         self.assertEqual(captured["webhook"], "https://example.com/hook")
         self.assertEqual(captured["content"], "summary:1")
 
+
 if __name__ == "__main__":
     unittest.main()

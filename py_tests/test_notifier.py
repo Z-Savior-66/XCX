@@ -172,5 +172,6 @@ class NotifierTestCase(unittest.TestCase):
 
         self.assertEqual(summary_result_hash(first), summary_result_hash(second))
 
+
 if __name__ == "__main__":
     unittest.main()
