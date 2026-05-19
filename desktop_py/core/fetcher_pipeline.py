@@ -81,11 +81,11 @@ def _prepare_account_session_for_fetch(
     if not session_status or session_status == "missing":
         return
     if session_status == "stale":
-        log_fn(logger, f"账号 {account.name} 登录态接近失效，先执行自动续期。")
+        log_fn(logger, "登录态接近失效，先执行自动续期。")
         if renew_account_state_fn(account, logger=logger, profile_dir=profile_dir, headless=headless):
             return
         raise FetchError(
-            f"账号 {account.name} 登录态续期失败，请重新保存登录态。",
+            "登录态续期失败，请重新保存登录态。",
             code=FetchErrorCode.SESSION_STATE_INVALID,
             evidence=[
                 {
@@ -100,11 +100,11 @@ def _prepare_account_session_for_fetch(
     if validate_account_state_fn(account, logger=logger, profile_dir=profile_dir):
         return
 
-    log_fn(logger, f"账号 {account.name} 登录态校验失败，尝试自动续期。")
+    log_fn(logger, "登录态校验失败，尝试自动续期。")
     if renew_account_state_fn(account, logger=logger, profile_dir=profile_dir, headless=headless):
         return
     raise FetchError(
-        f"账号 {account.name} 登录态无效，请重新保存登录态。",
+        "登录态无效，请重新保存登录态。",
         code=FetchErrorCode.SESSION_STATE_INVALID,
         evidence=[
             {

@@ -104,7 +104,7 @@ def mark_login(
         close_all_group_runtimes_fn()
     save_accounts_fn(window.accounts)
     window.refresh_table()
-    window.append_log(f"账号 {account.name} 的登录态已保存完成。")
+    window.append_log("登录态已保存完成。")
 
 
 def login_start_message(window: Any, account: Any) -> str:

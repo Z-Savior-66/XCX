@@ -271,7 +271,6 @@ def save_login_state_with_profile_impl(
             close_context_and_browser_fn(context, None)
 
     account.last_login_at = _now_text()
-    log_fn(logger, f"登录态已同步保存到 {state_path}")
     return str(state_path)
 
 
@@ -351,7 +350,7 @@ def validate_account_state_impl(
     apply_session_verification(account, verification, profile_dir=normalized_profile_dir)
     if not valid:
         reason = f"：{verification.reason}" if verification.reason else ""
-        log_fn(logger, f"账号 {account.name} 登录态校验结果：无效{reason}")
+        log_fn(logger, f"登录态校验结果：无效{reason}")
         log_session_offline(
             account.name,
             verification.reason or "未识别到可用后台登录态",
@@ -651,7 +650,7 @@ def renew_account_state_impl(
         if verification.page_url:
             extra.append(f"page.url={verification.page_url}")
         extra_text = f"（{'；'.join(extra)}）" if extra else ""
-        log_fn(logger, f"账号 {account.name} 自动续期失败{reason}{extra_text}。")
+        log_fn(logger, f"自动续期失败{reason}{extra_text}。")
         log_session_renew_failed(
             account.name,
             verification.reason or "未识别到可用后台登录态",

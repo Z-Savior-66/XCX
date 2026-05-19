@@ -255,6 +255,7 @@ class FetcherSessionTestCase(FetcherTestBase):
         self.assertEqual(calls.count("storage:state.json:True"), 3)
         self.assertIn("storage:.state.json.fallback.tmp:False", calls)
         self.assertIn("降级登录态已通过复验并保存。", logs[-1])
+        self.assertNotIn("登录态已同步保存到", "".join(logs))
 
     def test_persist_storage_state_keeps_original_when_fallback_verification_fails(self):
         class FakeContext:
@@ -1271,6 +1272,7 @@ class FetcherSessionTestCase(FetcherTestBase):
 
     def test_renew_account_state_does_not_fall_back_to_saved_feedback_url(self):
         calls: list[str] = []
+        logs: list[str] = []
 
         class FakePageForRenew:
             url = "https://mp.weixin.qq.com/"
@@ -1311,12 +1313,21 @@ class FetcherSessionTestCase(FetcherTestBase):
 
             valid = renew_account_state(
                 AccountConfig(name="主账号", state_path="storage/shared.json", feedback_url=feedback_url),
+                logger=logs.append,
                 profile_dir="",
             )
 
         self.assertFalse(valid)
         self.assertEqual(calls[:1], ["goto:https://mp.weixin.qq.com/"])
         self.assertFalse(any(call.startswith("storage:") for call in calls))
+        self.assertIn(
+            "自动续期失败：未检测到后台账号信息（判定分支=missing_backend_account_signals；page.url=https://mp.weixin.qq.com/）。",
+            logs,
+        )
+        self.assertNotIn(
+            "账号 主账号 自动续期失败：未检测到后台账号信息（判定分支=missing_backend_account_signals；page.url=https://mp.weixin.qq.com/）。",
+            logs,
+        )
 
     def test_renew_account_state_fails_without_overwriting_when_home_timeout(self):
         calls: list[str] = []

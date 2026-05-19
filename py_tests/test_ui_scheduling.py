@@ -536,7 +536,9 @@ class UiSchedulingTestCase(UiTestBase):
         self.assertEqual(account.session_renewal_failures, 0)
         self.assertEqual(account.last_note, "自动续期成功，保存后复验通过，可直接抓取")
         log_text = window.log_edit.toPlainText()
+        self.assertIn("自动续期失败，连续失败 2 次", log_text)
         self.assertIn("连续失败 2 次", log_text)
+        self.assertNotIn("账号 主账号 自动续期失败，连续失败", log_text)
         self.assertIn("自动续期已通过保存后复验", log_text)
         self.assertNotIn("账号 主账号 自动续期已通过保存后复验", log_text)
 

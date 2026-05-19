@@ -247,9 +247,7 @@ def mark_auto_renew_result(window: Any, account: Any, valid: bool, *, save_accou
     else:
         base_reason = account.last_session_error or "自动续期失败，请重新保存登录态"
         account.last_note = f"{base_reason}，连续失败 {account.session_renewal_failures} 次"
-        window.append_log(
-            f"账号 {account.name} 自动续期失败，连续失败 {account.session_renewal_failures} 次：{base_reason}。"
-        )
+        window.append_log(f"自动续期失败，连续失败 {account.session_renewal_failures} 次：{base_reason}。")
     save_accounts_fn(window.accounts)
     window.refresh_table()
 

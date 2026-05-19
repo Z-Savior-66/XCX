@@ -77,7 +77,9 @@ class UiSessionTestCase(UiTestBase):
 
         self.assertEqual(account.last_status, "已保存登录态")
         self.assertEqual(account.last_note, "可继续导入账号或直接抓取")
-        self.assertIn("登录态已保存完成", window.log_edit.toPlainText())
+        log_text = window.log_edit.toPlainText()
+        self.assertIn("登录态已保存完成", log_text)
+        self.assertNotIn("账号 入口账号 的登录态已保存完成", log_text)
         mock_close_runtimes.assert_called_once_with()
 
     def test_mark_login_propagates_feedback_url_to_shared_accounts(self):
