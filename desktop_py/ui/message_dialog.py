@@ -164,7 +164,9 @@ class MessageDialog(QDialog):
         return cls(title, text, "warning", parent).exec()
 
     @classmethod
-    def ask_confirm(cls, parent: QWidget, title: str, text: str, confirm_text: str = "确认", cancel_text: str = "取消") -> bool:
+    def ask_confirm(
+        cls, parent: QWidget, title: str, text: str, confirm_text: str = "确认", cancel_text: str = "取消"
+    ) -> bool:
         return cls(title, text, "warning", parent, confirm_text=confirm_text, cancel_text=cancel_text).exec() == int(
             QDialog.DialogCode.Accepted
         )

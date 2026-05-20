@@ -64,6 +64,7 @@ def ensure_browser_runtime(app: QApplication) -> bool:
         return True
     return show_install_browser_failure(result)
 
+
 def show_install_browser_failure(result: dict[str, object]) -> bool:
     tail = str(result.get("output", "") or "").strip() or "未获取到安装日志。"
     MessageDialog.show_warning(
@@ -72,6 +73,7 @@ def show_install_browser_failure(result: dict[str, object]) -> bool:
         "首次启动需要联网安装 Chromium 浏览器资源，请检查网络后重新打开程序。\n\n最近日志：\n" + tail,
     )
     return False
+
 
 def main() -> int:
     app = QApplication(sys.argv)

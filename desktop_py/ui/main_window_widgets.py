@@ -45,7 +45,9 @@ class HoverTableWidget(QTableWidget):
 
 
 class RowHighlightDelegate(QStyledItemDelegate):
-    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex | QPersistentModelIndex) -> None:
+    def paint(
+        self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex | QPersistentModelIndex
+    ) -> None:
         table = self.parent()
         row = index.row()
         parent_widget = self.parent()

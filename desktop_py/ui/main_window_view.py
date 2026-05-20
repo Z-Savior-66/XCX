@@ -202,7 +202,9 @@ def build_settings_box(window: Any) -> QWidget:
     return frame
 
 
-def event_filter(window: Any, watched: object, event: QEvent, super_event_filter: Callable[[object, QEvent], bool]) -> bool:
+def event_filter(
+    window: Any, watched: object, event: QEvent, super_event_filter: Callable[[object, QEvent], bool]
+) -> bool:
     if watched in {window.profile_dir_edit, window.browse_profile_button} and event.type() in {
         QEvent.Type.FocusIn,
         QEvent.Type.FocusOut,
