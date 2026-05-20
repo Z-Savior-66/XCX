@@ -62,15 +62,16 @@ def ensure_browser_runtime(app: QApplication) -> bool:
     progress.close()
     if bool(result["ok"]):
         return True
+    return show_install_browser_failure(result)
 
-    tail = str(result["output"]).strip() or "未获取到安装日志。"
+def show_install_browser_failure(result: dict[str, object]) -> bool:
+    tail = str(result.get("output", "") or "").strip() or "未获取到安装日志。"
     MessageDialog.show_warning(
-        None,
+        None,  # type: ignore[arg-type]
         "浏览器资源安装失败",
         "首次启动需要联网安装 Chromium 浏览器资源，请检查网络后重新打开程序。\n\n最近日志：\n" + tail,
     )
     return False
-
 
 def main() -> int:
     app = QApplication(sys.argv)
@@ -82,7 +83,7 @@ def main() -> int:
     try:
         instance_lock = acquire_app_instance_lock()
     except RuntimeError as exc:
-        MessageDialog.show_warning(None, "程序已在运行", str(exc))
+        MessageDialog.show_warning(None, "程序已在运行", str(exc))  # type: ignore[arg-type]
         return 1
     try:
         if not ensure_browser_runtime(app):

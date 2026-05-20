@@ -6,12 +6,11 @@ from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton,
 
 
 class MessageIcon(QWidget):
-    def __init__(self, tone: str = "info", parent=None):
-        super().__init__(parent)
+    def __init__(self, tone: str = "info", parent: QWidget | None = None) -> None:
         self._tone = tone
         self.setFixedSize(34, 34)
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event: object | None) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setPen(Qt.PenStyle.NoPen)
@@ -25,8 +24,8 @@ class MessageIcon(QWidget):
         painter.fillPath(path, color)
 
         painter.setPen(QPen(QColor("#ffffff"), 2.2))
-        painter.drawLine(self.width() / 2, 10, self.width() / 2, 20)
-        painter.drawPoint(self.width() / 2, 26)
+        painter.drawLine(int(self.width() / 2), 10, int(self.width() / 2), 20)
+        painter.drawPoint(int(self.width() / 2), 26)
         painter.end()
 
 
@@ -36,10 +35,10 @@ class MessageDialog(QDialog):
         title: str,
         text: str,
         tone: str = "info",
-        parent=None,
+        parent: QWidget | None = None,
         confirm_text: str = "知道了",
         cancel_text: str = "",
-    ):
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("messageDialog")
         self.setModal(True)
@@ -157,15 +156,15 @@ class MessageDialog(QDialog):
         )
 
     @classmethod
-    def show_info(cls, parent, title: str, text: str) -> int:
+    def show_info(cls, parent: QWidget, title: str, text: str) -> int:
         return cls(title, text, "info", parent).exec()
 
     @classmethod
-    def show_warning(cls, parent, title: str, text: str) -> int:
+    def show_warning(cls, parent: QWidget, title: str, text: str) -> int:
         return cls(title, text, "warning", parent).exec()
 
     @classmethod
-    def ask_confirm(cls, parent, title: str, text: str, confirm_text: str = "确认", cancel_text: str = "取消") -> bool:
+    def ask_confirm(cls, parent: QWidget, title: str, text: str, confirm_text: str = "确认", cancel_text: str = "取消") -> bool:
         return cls(title, text, "warning", parent, confirm_text=confirm_text, cancel_text=cancel_text).exec() == int(
             QDialog.DialogCode.Accepted
         )

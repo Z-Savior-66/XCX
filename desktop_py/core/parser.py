@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-DATE_TIME_RE = re.compile(r"20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}(?:[日\sT]*\d{1,2}:\d{2}(?::\d{2})?)?")
+DATE_TIME_RE = re.compile(
+    r"20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}(?:日)?(?:[T\s]\d{1,2}:\d{2}(?::\d{2})?)?"
+)
 
 
 def extract_labeled_datetime(text: str, label: str) -> str:

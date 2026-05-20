@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from desktop_py.core.models import AccountConfig
 from desktop_py.core.session_links import normalize_group_feedback_urls
 
 
@@ -39,7 +40,7 @@ def selected_indexes(window: Any) -> list[int]:
     return sorted(item.row() for item in selected)
 
 
-def selected_account(window: Any) -> Any:
+def selected_account(window: Any) -> AccountConfig | None:
     index = window.selected_index()
     return window.accounts[index] if 0 <= index < len(window.accounts) else None
 

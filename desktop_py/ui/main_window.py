@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 
 from PySide6.QtCore import QItemSelectionModel, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QGuiApplication
@@ -12,6 +14,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QSystemTrayIcon,
+    QWidget,
 )
 
 from desktop_py.core.fetcher import (
@@ -23,6 +26,7 @@ from desktop_py.core.fetcher import (
     save_login_state_with_profile,
     validate_account_state,
 )
+from desktop_py.core.fetcher_common import Logger
 from desktop_py.core.fetcher_runtime import close_all_group_runtimes
 from desktop_py.core.models import AccountConfig, AppSettings, FetchResult
 from desktop_py.core.notifier import build_summary, send_feishu_text
@@ -349,17 +353,17 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         build_ui_impl(self, HoverTableWidget, RowHighlightDelegate)
 
-    def _build_summary_strip(self):
-        return build_summary_strip_impl(self)
+    def _build_summary_strip(self) -> QWidget:
+        return build_summary_strip_impl(self)  # type: ignore[return-value]
 
-    def _build_metric_card(self, key: str, title: str, value: str):
+    def _build_metric_card(self, key: str, title: str, value: str) -> QWidget:
         return build_metric_card_impl(self, key, title, value)
 
-    def _build_settings_box(self):
+    def _build_settings_box(self) -> QWidget:
         return build_settings_box_impl(self)
 
-    def eventFilter(self, watched, event):
-        return event_filter_impl(self, watched, event, super().eventFilter)
+    def eventFilter(self, watched: object, event: object) -> bool:
+        return event_filter_impl(self, watched, event, super().eventFilter)  # type: ignore[arg-type]
 
     def _set_browse_profile_button_enabled(self, enabled: bool) -> None:
         set_browse_profile_button_enabled_impl(self, enabled)
@@ -367,16 +371,16 @@ class MainWindow(QMainWindow):
     def _sync_browse_profile_button_state(self) -> None:
         sync_browse_profile_button_state_impl(self)
 
-    def _build_actions_card(self):
+    def _build_actions_card(self) -> QWidget:
         return build_actions_card_impl(self)
 
-    def _build_actions(self):
-        return build_actions_impl(self)
+    def _build_actions(self) -> QWidget:
+        return build_actions_impl(self)  # type: ignore[return-value]
 
-    def _build_auto_fetch_push_switch(self):
+    def _build_auto_fetch_push_switch(self) -> QWidget:
         return build_auto_fetch_push_switch_impl(self)
 
-    def _wrap_card(self, title: str, subtitle: str, content):
+    def _wrap_card(self, title: str, subtitle: str, content: QWidget) -> QWidget:
         return wrap_card_impl(title, subtitle, content)
 
     def _apply_styles(self) -> None:
@@ -563,7 +567,7 @@ class MainWindow(QMainWindow):
     def _run_auto_fetch_push(self) -> None:
         run_auto_fetch_push_impl(self)
 
-    def _build_fetch_job(self, enabled_accounts: list[AccountConfig]):
+    def _build_fetch_job(self, enabled_accounts: list[AccountConfig]) -> Any:
         return build_fetch_job_impl(
             self,
             enabled_accounts,
@@ -614,12 +618,12 @@ class MainWindow(QMainWindow):
 
     def _run_thread(
         self,
-        job_builder,
-        on_success,
+        job_builder: Callable[[], object],
+        on_success: Callable[[object], None],
         emit_log: bool = True,
         emit_failure_log: bool = True,
         update_status: bool = True,
-        on_progress=None,
+        on_progress: Callable[..., None] | None = None,
     ) -> None:
         run_thread_impl(
             self,
@@ -646,7 +650,7 @@ class MainWindow(QMainWindow):
     def _call_renew_account_state(
         self,
         account: AccountConfig,
-        log,
+        log: Logger,
         profile_dir: str,
         headless: bool,
         switch_account_names: list[str] | None = None,
@@ -659,7 +663,7 @@ class MainWindow(QMainWindow):
             switch_account_names,
         )
 
-    def _call_fetch_accounts_batch(self, *args, **kwargs):
+    def _call_fetch_accounts_batch(self, *args: Any, **kwargs: Any) -> list[FetchResult]:
         return fetch_accounts_batch(*args, **kwargs)
 
     def _build_summary_text(self, results: list[FetchResult]) -> str:

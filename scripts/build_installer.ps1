@@ -1,7 +1,8 @@
 param(
     [switch]$Clean,
     [switch]$IncludeOfflineChromium,
-    [switch]$SkipVerification
+    [switch]$SkipVerification,
+    [switch]$DryRun
 )
 
 Set-StrictMode -Version Latest
@@ -99,6 +100,26 @@ $outputBaseFilename = if ($IncludeOfflineChromium) { "$appName-离线版" } else
 $appAssetsPath = Join-Path $projectRoot "assets"
 $appIconPath = Join-Path $appAssetsPath "app_icon.ico"
 $innoCompiler = Resolve-InnoCompilerPath -ProjectRoot $projectRoot
+if ($DryRun) {
+    Write-Host ""
+    Write-Host "══════════════════════════════════════════════"
+    Write-Host "  构建 Dry-Run 模式"
+    Write-Host "══════════════════════════════════════════════"
+    Write-Host "项目根目录:      $projectRoot"
+    Write-Host "应用名称:        $appName"
+    Write-Host "应用版本:        $appVersion"
+    Write-Host "应用发布者:      $appPublisher"
+    Write-Host "输出文件名:      $outputBaseFilename"
+    Write-Host "应用图标:        $(if (Test-Path $appIconPath) { '存在' } else { '不存在！' })"
+    Write-Host "Inno编译器:      $innoCompiler"
+    Write-Host "PyInstaller:     $(try { python -m PyInstaller --version 2>&1 | Select-Object -First 1 } catch { '未安装' })"
+    Write-Host "离线运行时:      $(if ($IncludeOfflineChromium) { '包含' } else { '不包含' })"
+    if (-not $SkipVerification) { Write-Host "本地验证:        启用" } else { Write-Host "本地验证:        跳过" }
+    Write-Host "══════════════════════════════════════════════"
+    Write-Host ""
+    Write-Host "Dry-Run 模式完成。传入 -IncludeOfflineChromium 包含离线浏览器。"
+    exit 0
+}
 if (-not $SkipVerification) {
     Invoke-LocalVerification -ProjectRoot $projectRoot
 }

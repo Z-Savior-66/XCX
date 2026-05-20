@@ -17,7 +17,7 @@ from desktop_py.core.models import AccountConfig
 
 
 class AccountDialog(QDialog):
-    def __init__(self, account: AccountConfig | None = None, parent=None):
+    def __init__(self, account: AccountConfig | None = None, parent: QWidget | None = None):
         super().__init__(parent)
         self._account = account
         self.setWindowTitle("账号配置")
@@ -44,11 +44,11 @@ class AccountDialog(QDialog):
         form.addRow("后台首页", self.home_url_edit)
         form.addRow("", self.enabled_check)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
-        ok_button = buttons.button(QDialogButtonBox.Ok)
-        cancel_button = buttons.button(QDialogButtonBox.Cancel)
+        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
         if ok_button:
             ok_button.setText("保存")
             ok_button.setProperty("role", "primary")

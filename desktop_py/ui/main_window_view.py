@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
+from typing import Any
 
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtWidgets import (
@@ -30,7 +32,7 @@ from desktop_py.ui.account_presenter import (
 MAX_LOG_BLOCK_COUNT = 200
 
 
-def build_ui(window, hover_table_cls, row_highlight_delegate_cls) -> None:
+def build_ui(window: Any, hover_table_cls: type, row_highlight_delegate_cls: type) -> None:
     central = QWidget(window)
     central.setObjectName("centralWidget")
     window.setCentralWidget(central)
@@ -43,9 +45,9 @@ def build_ui(window, hover_table_cls, row_highlight_delegate_cls) -> None:
     window.table = hover_table_cls(0, 5)
     window.table.setObjectName("accountTable")
     window.table.setHorizontalHeaderLabels(["账号", "最近截止时间", "最近状态", "结果", "启用"])
-    window.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-    window.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-    window.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    window.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    window.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+    window.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     window.table.setAlternatingRowColors(True)
     window.table.setShowGrid(False)
     window.table.setSortingEnabled(False)
@@ -114,7 +116,7 @@ def build_ui(window, hover_table_cls, row_highlight_delegate_cls) -> None:
     window.statusBar().showMessage("就绪")
 
 
-def build_summary_strip(window) -> QHBoxLayout:
+def build_summary_strip(window: Any) -> QHBoxLayout:
     layout = QHBoxLayout()
     layout.setSpacing(12)
     cards = [
@@ -128,7 +130,7 @@ def build_summary_strip(window) -> QHBoxLayout:
     return layout
 
 
-def build_metric_card(window, key: str, title: str, value: str) -> QWidget:
+def build_metric_card(window: Any, key: str, title: str, value: str) -> QWidget:
     frame = QFrame()
     frame.setObjectName("metricCard")
     frame.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
@@ -148,7 +150,7 @@ def build_metric_card(window, key: str, title: str, value: str) -> QWidget:
     return frame
 
 
-def build_settings_box(window) -> QWidget:
+def build_settings_box(window: Any) -> QWidget:
     frame = QFrame()
     frame.setObjectName("settingsBox")
     frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -200,7 +202,7 @@ def build_settings_box(window) -> QWidget:
     return frame
 
 
-def event_filter(window, watched, event, super_event_filter) -> bool:
+def event_filter(window: Any, watched: object, event: QEvent, super_event_filter: Callable[[object, QEvent], bool]) -> bool:
     if watched in {window.profile_dir_edit, window.browse_profile_button} and event.type() in {
         QEvent.Type.FocusIn,
         QEvent.Type.FocusOut,
@@ -209,18 +211,18 @@ def event_filter(window, watched, event, super_event_filter) -> bool:
     return super_event_filter(watched, event)
 
 
-def set_browse_profile_button_enabled(window, enabled: bool) -> None:
+def set_browse_profile_button_enabled(window: Any, enabled: bool) -> None:
     if window.browse_profile_button is not None:
         window.browse_profile_button.setEnabled(enabled)
 
 
-def sync_browse_profile_button_state(window) -> None:
+def sync_browse_profile_button_state(window: Any) -> None:
     focus_widget = window.focusWidget()
     enabled = focus_widget in {window.profile_dir_edit, window.browse_profile_button}
     set_browse_profile_button_enabled(window, enabled)
 
 
-def build_actions_card(window) -> QWidget:
+def build_actions_card(window: Any) -> QWidget:
     frame = QFrame()
     frame.setObjectName("actionsCard")
     frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -240,7 +242,7 @@ def build_actions_card(window) -> QWidget:
     return frame
 
 
-def build_actions(window) -> QGridLayout:
+def build_actions(window: Any) -> QGridLayout:
     layout = QGridLayout()
     layout.setHorizontalSpacing(10)
     layout.setVerticalSpacing(12)
@@ -305,7 +307,7 @@ def build_actions(window) -> QGridLayout:
     return layout
 
 
-def build_auto_fetch_push_switch(window) -> QWidget:
+def build_auto_fetch_push_switch(window: Any) -> QWidget:
     switch = window._toggle_action_button_cls("自动抓取并推送")
     switch.setObjectName("autoFetchPushSwitch")
     switch.setProperty("role", "success")
@@ -313,7 +315,7 @@ def build_auto_fetch_push_switch(window) -> QWidget:
     switch.setChecked(window.settings.auto_fetch_push_enabled)
     switch.toggled.connect(window._handle_auto_fetch_push_toggled)
     window.auto_fetch_push_switch = switch
-    return switch
+    return switch  # type: ignore[no-any-return]
 
 
 def wrap_card(title: str, subtitle: str, content: QWidget) -> QWidget:
@@ -336,7 +338,7 @@ def wrap_card(title: str, subtitle: str, content: QWidget) -> QWidget:
     return frame
 
 
-def apply_styles(window) -> None:
+def apply_styles(window: Any) -> None:
     window.setStyleSheet(
         """
         QMainWindow, QWidget#centralWidget {
@@ -488,12 +490,12 @@ def apply_styles(window) -> None:
     )
 
 
-def append_log(window, message: str) -> None:
+def append_log(window: Any, message: str) -> None:
     timestamp = datetime.now().strftime("%H:%M:%S")
     window.log_edit.appendPlainText(f"[{timestamp}] {message}")
 
 
-def refresh_table(window) -> None:
+def refresh_table(window: Any) -> None:
     selected_account_name = window.selected_account().name if window.selected_account() else ""
     window._sort_accounts_for_display()
     window.table.setRowCount(len(window.accounts))
@@ -507,7 +509,7 @@ def refresh_table(window) -> None:
         ]
         for col, value in enumerate(values):
             item = QTableWidgetItem(value)
-            item.setFlags(item.flags() ^ Qt.ItemIsEditable)
+            item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
             if col == 0 and account.is_entry_account:
                 item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
             else:
@@ -537,7 +539,7 @@ def refresh_table(window) -> None:
     window._update_action_buttons()
 
 
-def refresh_summary_cards(window) -> None:
+def refresh_summary_cards(window: Any) -> None:
     imported_accounts = [account for account in window.accounts if not account.is_entry_account]
     total = len(imported_accounts)
     enabled = sum(1 for account in imported_accounts if account.enabled)
@@ -551,6 +553,6 @@ def refresh_summary_cards(window) -> None:
     window._summary_labels["recent"].setText(recent)
 
 
-def set_status_text(window, message: str) -> None:
+def set_status_text(window: Any, message: str) -> None:
     if window._status_label is not None:
         window._status_label.setText(f"当前状态：{message}")

@@ -97,6 +97,9 @@ def _create_runtime(
 ) -> GroupRuntime:
     sync_manager = sync_playwright_fn()
     playwright = sync_manager.__enter__()
+    browser: Any | None = None
+    context: Any | None = None
+    page: Any | None = None
     try:
         browser, context = create_browser_context_fn(playwright, account, headless, profile_dir)
         page = context.new_page()
@@ -118,6 +121,22 @@ def _create_runtime(
             pass
         return runtime
     except Exception:
+        # 逐级清理可能已创建的资源，防止浏览器进程泄漏
+        if page is not None:
+            try:
+                page.close()
+            except Exception:
+                pass
+        if context is not None:
+            try:
+                context.close()
+            except Exception:
+                pass
+        if browser is not None:
+            try:
+                browser.close()
+            except Exception:
+                pass
         try:
             sync_manager.__exit__(None, None, None)
         except Exception:

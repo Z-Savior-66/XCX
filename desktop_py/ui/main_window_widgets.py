@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QKeySequence, QPainter, QPen
+from typing import TYPE_CHECKING
+
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QColor, QKeyEvent, QKeySequence, QMouseEvent, QPainter, QPaintEvent, QPen
 from PySide6.QtWidgets import QPushButton, QStyle, QStyledItemDelegate, QTableWidget, QWidget
+
+if TYPE_CHECKING:
+    from PySide6.QtCore import QModelIndex, QPersistentModelIndex
+    from PySide6.QtWidgets import QStyleOptionViewItem
 
 
 class HoverTableWidget(QTableWidget):
@@ -14,20 +20,20 @@ class HoverTableWidget(QTableWidget):
         self.setMouseTracking(True)
         self.viewport().setMouseTracking(True)
 
-    def mouseMoveEvent(self, event) -> None:
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
         row = self.rowAt(event.position().toPoint().y())
         if row != self._hovered_row:
             self._hovered_row = row
             self.hovered_row_changed.emit(row)
         super().mouseMoveEvent(event)
 
-    def leaveEvent(self, event) -> None:
+    def leaveEvent(self, event: QEvent) -> None:
         if self._hovered_row != -1:
             self._hovered_row = -1
             self.hovered_row_changed.emit(-1)
         super().leaveEvent(event)
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.matches(QKeySequence.StandardKey.SelectAll):
             event.accept()
             return
@@ -39,12 +45,16 @@ class HoverTableWidget(QTableWidget):
 
 
 class RowHighlightDelegate(QStyledItemDelegate):
-    def paint(self, painter: QPainter, option, index) -> None:
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex | QPersistentModelIndex) -> None:
         table = self.parent()
         row = index.row()
-        selected_rows = (
-            {item.row() for item in table.selectionModel().selectedRows()} if table.selectionModel() else set()
-        )
+        parent_widget = self.parent()
+        parent_table = parent_widget if isinstance(parent_widget, QTableWidget) else None
+        selected_rows: set[int] = set()
+        if parent_table is not None:
+            sm = parent_table.selectionModel()
+            if sm is not None:
+                selected_rows = {item.row() for item in sm.selectedRows()}
 
         default_bg = QColor("#ffffff")
         alt_bg = QColor("#f7fafe")
@@ -74,7 +84,7 @@ class RowHighlightDelegate(QStyledItemDelegate):
 
 
 class ToggleActionButton(QPushButton):
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event: QPaintEvent) -> None:
         super().paintEvent(event)
 
         painter = QPainter(self)
