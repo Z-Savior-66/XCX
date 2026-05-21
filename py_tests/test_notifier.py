@@ -85,39 +85,46 @@ class NotifierTestCase(unittest.TestCase):
             ]
         )
 
+        self.assertIn("待处理事项：1 类", text)
+        self.assertIn("【未成年退款】", text)
         self.assertIn("待处理账号：2 个", text)
         self.assertLess(text.index("较近账号"), text.index("较远账号"))
         self.assertNotIn("无待处理账号", text)
         self.assertNotIn("失败账号", text)
 
-    def test_summary_appends_notification_summary_to_pending_line(self):
+    def test_summary_splits_refund_transaction_complaint_and_notification_sections(self):
         text = build_summary(
             [
                 FetchResult(
-                    account_name="账号A",
+                    account_name="退款账号",
                     ok=True,
                     deadline_text="2026-04-24 22:48:57",
-                    note="已完成详情页抓取。；通知中心未读消息 1 条：小程序微信认证年审通知",
                 ),
                 FetchResult(
-                    account_name="账号B",
+                    account_name="当代情诗摘抄合集",
                     ok=True,
-                    deadline_text="2026-04-28 21:39:08",
-                    note="已完成详情页抓取。；通知中心未读消息 1 条：小程序微信认证年审通知",
+                    note="交易投诉待处理 1 条：48648037",
+                ),
+                FetchResult(
+                    account_name="通知账号",
+                    ok=True,
+                    note="通知中心未读消息 1 条：小程序微信认证年审通知",
                 ),
             ]
         )
 
+        self.assertIn("待处理事项：3 类", text)
+        self.assertLess(text.index("【未成年退款】"), text.index("【交易投诉】"))
+        self.assertLess(text.index("【交易投诉】"), text.index("【通知中心】"))
+        self.assertIn("【未成年退款】\n待处理账号：1 个\n1. 退款账号：未成年申请截止 2026-04-24 22:48:57", text)
         self.assertIn(
-            "1. 账号A：未成年申请截止 2026-04-24 22:48:57；通知中心未读消息 1 条：小程序微信认证年审通知",
-            text,
+            "【交易投诉】\n待处理账号：1 个\n1. 当代情诗摘抄合集：交易投诉待处理 1 条，投诉编号：48648037", text
         )
         self.assertIn(
-            "2. 账号B：未成年申请截止 2026-04-28 21:39:08；通知中心未读消息 1 条：小程序微信认证年审通知",
-            text,
+            "【通知中心】\n待处理账号：1 个\n1. 通知账号：通知中心未读消息 1 条：小程序微信认证年审通知", text
         )
 
-    def test_summary_includes_notification_only_accounts_after_deadline_accounts(self):
+    def test_summary_includes_notification_only_accounts_in_notification_section(self):
         text = build_summary(
             [
                 FetchResult(
@@ -125,19 +132,53 @@ class NotifierTestCase(unittest.TestCase):
                     ok=True,
                     note="通知中心未读消息 1 条：小程序微信认证年审通知",
                 ),
-                FetchResult(
-                    account_name="退款账号",
-                    ok=True,
-                    deadline_text="2026-04-20 09:00:00",
-                    note="已完成详情页抓取。",
-                ),
             ]
         )
 
-        self.assertIn("待处理账号：2 个", text)
-        self.assertIn("1. 退款账号：未成年申请截止 2026-04-20 09:00:00", text)
-        self.assertIn("2. 只有通知账号：通知中心未读消息 1 条：小程序微信认证年审通知", text)
-        self.assertLess(text.index("退款账号"), text.index("只有通知账号"))
+        self.assertIn("待处理事项：1 类", text)
+        self.assertNotIn("【未成年退款】", text)
+        self.assertNotIn("【交易投诉】", text)
+        self.assertIn(
+            "【通知中心】\n待处理账号：1 个\n1. 只有通知账号：通知中心未读消息 1 条：小程序微信认证年审通知", text
+        )
+
+    def test_summary_includes_transaction_complaint_only_accounts(self):
+        text = build_summary(
+            [
+                FetchResult(
+                    account_name="经典诗词摘抄",
+                    ok=True,
+                    note="交易投诉待处理 1 条：48383455",
+                )
+            ]
+        )
+
+        self.assertIn("待处理事项：1 类", text)
+        self.assertIn("【交易投诉】", text)
+        self.assertIn("待处理账号：1 个", text)
+        self.assertIn("1. 经典诗词摘抄：交易投诉待处理 1 条，投诉编号：48383455", text)
+        self.assertNotIn("【未成年退款】", text)
+        self.assertNotIn("【通知中心】", text)
+
+    def test_summary_repeats_same_account_in_each_matching_section(self):
+        text = build_summary(
+            [
+                FetchResult(
+                    account_name="当代情诗摘抄合集",
+                    ok=True,
+                    deadline_text="2026-05-22 10:00:00",
+                    note="已完成详情页抓取。；通知中心未读消息 1 条：你的账号收到一条侵权投诉；交易投诉待处理 1 条：48383455",
+                )
+            ]
+        )
+
+        self.assertIn("【未成年退款】\n待处理账号：1 个\n1. 当代情诗摘抄合集：未成年申请截止 2026-05-22 10:00:00", text)
+        self.assertIn(
+            "【交易投诉】\n待处理账号：1 个\n1. 当代情诗摘抄合集：交易投诉待处理 1 条，投诉编号：48383455", text
+        )
+        self.assertIn(
+            "【通知中心】\n待处理账号：1 个\n1. 当代情诗摘抄合集：通知中心未读消息 1 条：你的账号收到一条侵权投诉", text
+        )
 
     def test_summary_shows_empty_pending_message(self):
         text = build_summary(
@@ -147,8 +188,8 @@ class NotifierTestCase(unittest.TestCase):
             ]
         )
 
-        self.assertIn("待处理账号：0 个", text)
-        self.assertIn("暂无待处理账号。", text)
+        self.assertIn("待处理事项：0 类", text)
+        self.assertIn("暂无待处理事项。", text)
         self.assertNotIn("1. 无待处理账号", text)
         self.assertNotIn("失败账号", text)
 

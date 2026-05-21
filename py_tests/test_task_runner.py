@@ -117,6 +117,29 @@ class TaskRunnerTestCase(unittest.TestCase):
         self.assertEqual(threads, [])
         self.assertGreaterEqual(len(updates), 3)
 
+    def test_worker_idle_restores_ready_status(self):
+        statuses: list[str] = []
+        status_messages: list[tuple[str, int]] = []
+        threads = []
+        runner = WindowTaskRunner(
+            parent=object(),
+            threads=threads,
+            append_log=lambda _message: None,
+            update_action_buttons=lambda: None,
+            set_status_text=statuses.append,
+            status_message=lambda message, timeout: status_messages.append((message, timeout)),
+        )
+
+        with patch("desktop_py.ui.task_runner.TaskThread", FakeThread):
+            runner.run(lambda log: None, lambda _result: None)
+
+        self.assertEqual(statuses[-1], "后台任务执行中…")
+
+        runner._worker.idle.callbacks[0]()
+
+        self.assertEqual(statuses[-1], "就绪")
+        self.assertEqual(status_messages[-1], ("任务已完成", 300000))
+
     def test_cancelled_task_logs_cancelled_without_failure(self):
         logs: list[str] = []
         statuses: list[str] = []

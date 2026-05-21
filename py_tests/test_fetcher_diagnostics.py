@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from desktop_py.core.fetcher_diagnostics import (
+    build_success_log_lines,
     compose_fetch_result,
     select_final_refund_outcome,
     write_batch_diagnostic_index_safely,
@@ -31,6 +32,58 @@ class FetcherDiagnosticsTestCase(unittest.TestCase):
     def test_select_final_refund_outcome_rejects_empty_outcomes(self):
         with self.assertRaisesRegex(ValueError, "退款结果列表不能为空"):
             select_final_refund_outcome(())
+
+    def test_build_success_log_lines_includes_transaction_complaint_summary(self):
+        lines = build_success_log_lines(
+            notification_outcome={
+                "ok": True,
+                "notifications": [],
+                "summary": "通知中心无目标未读消息。",
+                "page_url": "https://example.com/notice",
+            },
+            transaction_complaint_outcome={
+                "ok": True,
+                "enabled": True,
+                "complaints": [{"complaint_order_id": "48383455"}],
+                "summary": "交易投诉待处理 1 条：48383455",
+                "page_url": "https://example.com/complaint",
+            },
+            refund_outcomes=(),
+        )
+
+        self.assertEqual(
+            lines,
+            [
+                "通知中心无目标未读消息。",
+                "交易投诉待处理 1 条，投诉编号：48383455。",
+            ],
+        )
+
+    def test_build_success_log_lines_includes_empty_transaction_complaint_summary(self):
+        lines = build_success_log_lines(
+            notification_outcome={
+                "ok": True,
+                "notifications": [],
+                "summary": "通知中心无目标未读消息。",
+                "page_url": "https://example.com/notice",
+            },
+            transaction_complaint_outcome={
+                "ok": True,
+                "enabled": True,
+                "complaints": [],
+                "summary": "交易投诉无待处理投诉。",
+                "page_url": "https://example.com/complaint",
+            },
+            refund_outcomes=(),
+        )
+
+        self.assertEqual(
+            lines,
+            [
+                "通知中心无目标未读消息。",
+                "交易投诉无待处理。",
+            ],
+        )
 
     def test_compose_fetch_result_merges_notification_and_transaction_notes(self):
         result, result_extra = compose_fetch_result(

@@ -72,11 +72,24 @@ def is_expected_empty_result_note(note: str) -> bool:
     return is_expected_empty_result_note_from_core(note)
 
 
+def transaction_complaint_pending_text(note: str) -> str:
+    for segment in str(note or "").split("；"):
+        value = segment.strip()
+        if not value.startswith("交易投诉待处理"):
+            continue
+        prefix, _separator, _order_ids = value.partition("：")
+        return prefix.replace("交易投诉", "", 1).strip()
+    return ""
+
+
 def display_deadline_text(account: AccountConfig) -> str:
     if account.is_entry_account and not account.last_deadline:
         return "--"
     if is_no_business_page_note(account.last_note):
         return "无页面"
+    transaction_complaint_text = transaction_complaint_pending_text(account.last_note)
+    if transaction_complaint_text:
+        return transaction_complaint_text
     if account.last_status == FETCH_STATUS_SUCCESS and is_expected_empty_result_note_from_core(account.last_note):
         if "截止时间内无待处理" in account.last_note:
             return "截止时间内无待处理"

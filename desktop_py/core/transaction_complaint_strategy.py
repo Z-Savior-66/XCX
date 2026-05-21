@@ -273,7 +273,6 @@ def fetch_transaction_complaints(
         complaints = fetch_pending_transaction_complaint_items(page, token, request_json_fn=request_json_fn)
         write_account_output_json(account.name, "transaction_complaints.json", complaints)
         summary = build_transaction_complaint_summary(complaints)
-        log_fn(logger, f"账号 {account.name} {summary}")
         return {"ok": True, "enabled": True, "complaints": complaints, "summary": summary, "page_url": page_url}
     except Exception as exc:
         try:

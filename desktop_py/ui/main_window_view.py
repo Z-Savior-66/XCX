@@ -30,6 +30,10 @@ from desktop_py.ui.account_presenter import (
 )
 
 MAX_LOG_BLOCK_COUNT = 200
+PROCESS_LOG_PREFIXES = (
+    "已切换到账号：",
+    "当前已是目标账号：",
+)
 
 
 def build_ui(window: Any, hover_table_cls: type, row_highlight_delegate_cls: type) -> None:
@@ -493,8 +497,50 @@ def apply_styles(window: Any) -> None:
 
 
 def append_log(window: Any, message: str) -> None:
+    if not should_show_runtime_log_message(message):
+        return
     timestamp = datetime.now().strftime("%H:%M:%S")
-    window.log_edit.appendPlainText(f"[{timestamp}] {message}")
+    window.log_edit.appendPlainText(f"[{timestamp}] {format_runtime_log_message(message)}")
+
+
+def should_show_runtime_log_message(message: str) -> bool:
+    value = message.strip()
+    if not value:
+        return False
+    return not value.startswith(PROCESS_LOG_PREFIXES)
+
+
+def format_runtime_log_message(message: str) -> str:
+    value = message.strip()
+    success_prefix = "账号 "
+    success_marker = " 抓取成功："
+    failure_marker = " 抓取失败："
+    if value.startswith(success_prefix) and success_marker in value:
+        account_name, detail = value[len(success_prefix) :].split(success_marker, 1)
+        return _format_account_result_block(account_name, "成功", detail)
+    if value.startswith(success_prefix) and failure_marker in value:
+        account_name, detail = value[len(success_prefix) :].split(failure_marker, 1)
+        return _format_account_result_block(account_name, "失败", detail)
+    return value
+
+
+def _format_account_result_block(account_name: str, status: str, detail: str) -> str:
+    lines = [
+        "────────────────",
+        f"账号：{account_name.strip()}｜状态：{status}",
+    ]
+    detail_lines = [_normalize_account_result_detail(line) for line in detail.splitlines() if line.strip()]
+    if detail_lines:
+        lines.extend(detail_lines)
+    return "\n".join(lines)
+
+
+def _normalize_account_result_detail(line: str) -> str:
+    value = line.strip()
+    index_text, separator, content = value.partition(".")
+    if separator and index_text.isdigit():
+        return f"{index_text}. {content.strip()}"
+    return value
 
 
 def refresh_table(window: Any) -> None:

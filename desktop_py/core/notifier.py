@@ -46,34 +46,60 @@ def _feishu_response_code(payload: dict[str, Any]) -> int:
 def build_summary(results: list[FetchResult], generated_at: datetime | None = None) -> str:
     result_hash = summary_result_hash(results)
     generated_time = (generated_at or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
-    pending_results = sorted(
-        [result for result in results if _should_include_in_summary(result)],
-        key=_summary_sort_key,
-    )
+    sections = [
+        ("未成年退款", _refund_rows(results)),
+        ("交易投诉", _transaction_complaint_rows(results)),
+        ("通知中心", _notification_rows(results)),
+    ]
+    pending_sections = [(title, rows) for title, rows in sections if rows]
     lines = [
         "微信退款处理截止时间日报",
         f"生成时间：{generated_time}",
         f"摘要标识：{result_hash}",
-        f"待处理账号：{len(pending_results)} 个",
+        f"待处理事项：{len(pending_sections)} 类",
         "",
     ]
-    if not pending_results:
-        lines.append("暂无待处理账号。")
+    if not pending_sections:
+        lines.append("暂无待处理事项。")
         return "\n".join(lines)
-    for index, result in enumerate(pending_results, start=1):
-        lines.append(_format_pending_result(index, result))
+    for section_index, (title, rows) in enumerate(pending_sections):
+        if section_index > 0:
+            lines.append("")
+        _append_summary_section(lines, title, rows)
     return "\n".join(lines)
 
 
-def _format_pending_result(index: int, result: FetchResult) -> str:
-    parts: list[str] = []
-    if result.deadline_text.strip():
-        parts.append(f"未成年申请截止 {result.deadline_text}")
-    notification_summary = _notification_summary(result)
-    if notification_summary:
-        parts.append(notification_summary)
-    line = "；".join(parts)
-    return f"{index}. {result.account_name}：{line}{_actual_suffix(result)}"
+def _refund_rows(results: list[FetchResult]) -> list[str]:
+    return [
+        f"{result.account_name}：未成年申请截止 {result.deadline_text.strip()}{_actual_suffix(result)}"
+        for result in sorted(results, key=_summary_sort_key)
+        if _can_summarize(result) and result.deadline_text.strip()
+    ]
+
+
+def _transaction_complaint_rows(results: list[FetchResult]) -> list[str]:
+    rows: list[str] = []
+    for result in sorted(results, key=_summary_sort_key):
+        summary = _transaction_complaint_summary(result)
+        if _can_summarize(result) and summary:
+            rows.append(f"{result.account_name}：{summary}{_actual_suffix(result)}")
+    return rows
+
+
+def _notification_rows(results: list[FetchResult]) -> list[str]:
+    rows: list[str] = []
+    for result in sorted(results, key=_summary_sort_key):
+        summary = _notification_summary(result)
+        if _can_summarize(result) and summary:
+            rows.append(f"{result.account_name}：{summary}{_actual_suffix(result)}")
+    return rows
+
+
+def _append_summary_section(lines: list[str], title: str, rows: list[str]) -> None:
+    lines.append(f"【{title}】")
+    lines.append(f"待处理账号：{len(rows)} 个")
+    for index, row in enumerate(rows, start=1):
+        lines.append(f"{index}. {row}")
 
 
 def _notification_summary(result: FetchResult) -> str:
@@ -87,10 +113,34 @@ def _notification_summary(result: FetchResult) -> str:
     return ""
 
 
+def _transaction_complaint_summary(result: FetchResult) -> str:
+    note = str(result.note or "").strip()
+    if not note:
+        return ""
+    for segment in note.split("；"):
+        value = segment.strip()
+        if value.startswith("交易投诉待处理"):
+            return _format_transaction_complaint_summary(value)
+    return ""
+
+
+def _format_transaction_complaint_summary(value: str) -> str:
+    prefix, separator, order_ids = value.partition("：")
+    if not separator:
+        return value
+    return f"{prefix}，投诉编号：{order_ids.strip()}"
+
+
 def _should_include_in_summary(result: FetchResult) -> bool:
+    return _can_summarize(result) and bool(
+        result.deadline_text.strip() or _notification_summary(result) or _transaction_complaint_summary(result)
+    )
+
+
+def _can_summarize(result: FetchResult) -> bool:
     if not result.account_name.strip() or not result.ok:
         return False
-    return bool(result.deadline_text.strip() or _notification_summary(result))
+    return True
 
 
 def _summary_sort_key(result: FetchResult) -> tuple[int, datetime, str]:

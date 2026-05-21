@@ -166,6 +166,7 @@ class TransactionComplaintStrategyTestCase(FetcherTestBase):
         page = FakeComplaintPage()
         account = AccountConfig(name="经典诗词摘抄", state_path="storage/shared.json", is_entry_account=False)
         written: dict[str, object] = {}
+        messages: list[str] = []
 
         def request_json(_page, url):
             self.assertIn("status=201", url)
@@ -184,7 +185,7 @@ class TransactionComplaintStrategyTestCase(FetcherTestBase):
                 account=account,
                 logger=None,
                 output_dir=type("Path", (), {})(),
-                log_fn=lambda *_args: None,
+                log_fn=lambda _logger, message: messages.append(message),
                 wait_for_url_contains_fn=lambda *_args, **_kwargs: True,
                 safe_page_content_fn=lambda current_page: current_page.content(),
                 request_json_fn=request_json,
@@ -195,6 +196,31 @@ class TransactionComplaintStrategyTestCase(FetcherTestBase):
         self.assertEqual(outcome["summary"], "交易投诉待处理 1 条：48383455")
         self.assertEqual(written["filename"], "transaction_complaints.json")
         self.assertEqual(written["payload"][0]["status_text"], "待处理")
+        self.assertEqual(messages, [])
+
+    def test_fetch_transaction_complaints_returns_empty_summary_without_direct_success_log(self):
+        page = FakeComplaintPage()
+        account = AccountConfig(name="经典诗词摘抄", state_path="storage/shared.json", is_entry_account=False)
+        messages: list[str] = []
+
+        with patch("desktop_py.core.transaction_complaint_strategy.write_account_output_json") as write_json:
+            outcome = fetch_transaction_complaints(
+                page,
+                account=account,
+                logger=None,
+                output_dir=type("Path", (), {})(),
+                log_fn=lambda _logger, message: messages.append(message),
+                wait_for_url_contains_fn=lambda *_args, **_kwargs: True,
+                safe_page_content_fn=lambda current_page: current_page.content(),
+                request_json_fn=lambda *_args: {"ret": 0, "countAll": 0, "complaintOrderList": []},
+            )
+
+        self.assertTrue(outcome["ok"])
+        self.assertTrue(outcome["enabled"])
+        self.assertEqual(outcome["complaints"], [])
+        self.assertEqual(outcome["summary"], "交易投诉无待处理投诉。")
+        write_json.assert_called_with("经典诗词摘抄", "transaction_complaints.json", [])
+        self.assertEqual(messages, [])
 
     def test_fetch_transaction_complaints_records_failure_as_non_blocking_outcome(self):
         page = FakeComplaintPage()

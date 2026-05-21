@@ -96,6 +96,21 @@ class AccountPresenterTestCase(unittest.TestCase):
         self.assertEqual(display_deadline_text(account), "无页面")
         self.assertEqual(display_result_text(account), "完成")
 
+    def test_apply_fetch_result_shows_transaction_complaint_pending_count(self):
+        account = AccountConfig(name="当代情诗摘抄合集", state_path="storage/shared.json", is_entry_account=False)
+        result = FetchResult(
+            account_name="当代情诗摘抄合集",
+            ok=True,
+            note="通知中心无目标未读消息。；交易投诉待处理 1 条：48648037",
+        )
+
+        apply_fetch_result(account, result)
+
+        self.assertEqual(account.last_status, "抓取成功")
+        self.assertEqual(display_deadline_text(account), "待处理 1 条")
+        self.assertEqual(deadline_tooltip_text(account), "待处理 1 条")
+        self.assertEqual(display_result_text(account), "完成")
+
     def test_next_auto_fetch_push_interval_ms_matches_existing_schedule(self):
         self.assertEqual(
             next_auto_fetch_push_interval_ms(datetime(2026, 4, 18, 8, 30, 0)),

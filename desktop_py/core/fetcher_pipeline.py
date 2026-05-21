@@ -633,6 +633,7 @@ def _fetch_account_in_page_with_context(
                 logger=logger,
                 log_fn=pipeline_context.log_fn,
                 notification_outcome=notification_outcome,
+                transaction_complaint_outcome=transaction_complaint_outcome,
                 refund_outcomes=refund_outcomes,
             )
         set_page_home_ready(page, False)

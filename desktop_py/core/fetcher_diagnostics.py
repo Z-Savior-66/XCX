@@ -74,11 +74,34 @@ def _ensure_sentence(text: str) -> str:
     return f"{value}。"
 
 
-def build_success_log_lines(*, notification_outcome: dict[str, Any], refund_outcomes: tuple[Any, ...]) -> list[str]:
+def _transaction_complaint_log_summary(transaction_complaint_outcome: dict[str, Any]) -> str:
+    if not transaction_complaint_outcome.get("enabled") or not transaction_complaint_outcome.get("ok", True):
+        return ""
+    complaints = [
+        item
+        for item in transaction_complaint_outcome.get("complaints", [])
+        if isinstance(item, dict) and str(item.get("complaint_order_id", "") or "").strip()
+    ]
+    if not complaints:
+        return "交易投诉无待处理。"
+    order_ids = "、".join(str(item["complaint_order_id"]).strip() for item in complaints[:3])
+    suffix = " 等" if len(complaints) > 3 else ""
+    return f"交易投诉待处理 {len(complaints)} 条，投诉编号：{order_ids}{suffix}。"
+
+
+def build_success_log_lines(
+    *,
+    notification_outcome: dict[str, Any],
+    transaction_complaint_outcome: dict[str, Any] | None = None,
+    refund_outcomes: tuple[Any, ...],
+) -> list[str]:
     lines: list[str] = []
     notification_summary = str(notification_outcome.get("summary", "") or "").strip()
     if notification_summary:
         lines.append(_ensure_sentence(notification_summary))
+    transaction_complaint_summary = _transaction_complaint_log_summary(transaction_complaint_outcome or {})
+    if transaction_complaint_summary:
+        lines.append(transaction_complaint_summary)
     for outcome in refund_outcomes:
         route = outcome.route
         if not isinstance(route, FeedbackRoute):
@@ -102,10 +125,12 @@ def log_fetch_success_summary(
     logger: Logger | None,
     log_fn: LogFn,
     notification_outcome: dict[str, Any],
+    transaction_complaint_outcome: dict[str, Any] | None = None,
     refund_outcomes: tuple[Any, ...],
 ) -> None:
     lines = build_success_log_lines(
         notification_outcome=notification_outcome,
+        transaction_complaint_outcome=transaction_complaint_outcome,
         refund_outcomes=refund_outcomes,
     )
     if not lines:

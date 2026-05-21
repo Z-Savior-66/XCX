@@ -28,6 +28,26 @@ class UiFetchTestCase(UiTestBase):
         self.assertEqual(window.table.item(0, 3).text(), "完成")
         self.assertEqual(window.table.item(0, 1).toolTip(), "无待处理")
 
+    def test_fetch_success_with_transaction_complaint_shows_pending_count(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window.accounts = [
+            AccountConfig(
+                name="当代情诗摘抄合集",
+                state_path="storage/shared.json",
+                is_entry_account=False,
+                last_status="抓取成功",
+                last_deadline="",
+                last_note="通知中心无目标未读消息。；交易投诉待处理 1 条：48648037",
+            ),
+        ]
+
+        window.refresh_table()
+
+        self.assertEqual(window.table.item(0, 1).text(), "待处理 1 条")
+        self.assertEqual(window.table.item(0, 3).text(), "完成")
+        self.assertEqual(window.table.item(0, 1).toolTip(), "待处理 1 条")
+
     def test_fetch_failure_shows_reason_in_deadline_column(self):
         window = MainWindow()
         self.addCleanup(window.close)
@@ -327,7 +347,7 @@ class UiFetchTestCase(UiTestBase):
             "账号 梦幻光环 抓取成功：\n1.通知中心无目标未读消息。\n2.未成年退款申请处理截止时间：2026-05-18 10:00:00。"
         )
 
-        self.assertIn("1.通知中心无目标未读消息。", window.log_edit.toPlainText())
+        self.assertIn("1. 通知中心无目标未读消息。", window.log_edit.toPlainText())
         self.assertEqual(window._status_label.text(), "当前状态：就绪")
 
     def test_mark_fetch_progress_treats_no_deadline_note_as_success(self):

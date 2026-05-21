@@ -201,6 +201,35 @@ class UiSmokeTestCase(UiTestBase):
         self.assertIn("第 10 条日志", log_lines[0])
         self.assertIn("第 209 条日志", log_lines[-1])
 
+    def test_append_log_hides_account_switch_process_message(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+
+        window.append_log("已切换到账号：当代情诗摘抄合集")
+
+        self.assertEqual(window.log_edit.toPlainText(), "")
+
+    def test_append_log_formats_fetch_success_as_account_result_block(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+
+        window.append_log("账号 当代情诗摘抄合集 抓取成功：\n1.通知中心无目标未读消息。\n2.交易投诉无待处理。")
+
+        text = window.log_edit.toPlainText()
+        self.assertIn("账号：当代情诗摘抄合集｜状态：成功", text)
+        self.assertIn("1. 通知中心无目标未读消息。", text)
+        self.assertIn("2. 交易投诉无待处理。", text)
+
+    def test_append_log_formats_fetch_failure_as_account_result_block(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+
+        window.append_log("账号 经典诗词摘抄 抓取失败：切换账号列表中未找到目标账号。")
+
+        text = window.log_edit.toPlainText()
+        self.assertIn("账号：经典诗词摘抄｜状态：失败", text)
+        self.assertIn("切换账号列表中未找到目标账号。", text)
+
     def test_no_business_page_failure_shows_short_description(self):
         window = MainWindow()
         self.addCleanup(window.close)

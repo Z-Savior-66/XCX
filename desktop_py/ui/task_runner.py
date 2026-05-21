@@ -118,6 +118,8 @@ class WindowTaskRunner:
         if worker is not None and worker in self._threads:
             self._threads.remove(worker)
         self._update_action_buttons()
+        self._status_message("任务已完成", 300000)
+        self._set_status_text("就绪")
 
     def handle_finished(self, thread: TaskThread) -> None:
         if thread in self._threads:
