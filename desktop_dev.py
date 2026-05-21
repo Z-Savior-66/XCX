@@ -116,7 +116,9 @@ def stop_existing_app_instances(current_pid: int) -> None:
 
 
 def spawn_app() -> subprocess.Popen[bytes]:
-    return subprocess.Popen([sys.executable, "desktop_main.py"], cwd=ROOT)
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return subprocess.Popen([sys.executable, "desktop_main.py"], cwd=ROOT, env=env)
 
 
 def stop_app(process: subprocess.Popen[bytes] | None) -> None:

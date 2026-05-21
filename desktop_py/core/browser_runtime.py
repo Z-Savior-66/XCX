@@ -98,6 +98,7 @@ def playwright_install_command() -> list[str]:
 
 def playwright_install_environment(target: Path) -> dict[str, str]:
     env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["PLAYWRIGHT_BROWSERS_PATH"] = str(target)
     env.setdefault("PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT", DEFAULT_PLAYWRIGHT_DOWNLOAD_TIMEOUT_MS)
     return env

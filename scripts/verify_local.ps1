@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $cacheRoot = Join-Path $projectRoot ".cache"
 $env:QT_QPA_PLATFORM = "offscreen"
+$env:PYTHONDONTWRITEBYTECODE = "1"
 $env:PYTHONPYCACHEPREFIX = Join-Path $cacheRoot "pycache"
 New-Item -ItemType Directory -Path $env:PYTHONPYCACHEPREFIX -Force | Out-Null
 

@@ -25,6 +25,7 @@ class BuildInstallerScriptTestCase(unittest.TestCase):
         installer_content = INSTALLER_ISS_PATH.read_text(encoding="utf-8")
 
         self.assertIn('$cacheRoot = Join-Path $projectRoot ".cache"', content)
+        self.assertIn('$env:PYTHONDONTWRITEBYTECODE = "1"', content)
         self.assertIn('$buildCacheRoot = Join-Path $cacheRoot "build"', content)
         self.assertIn('$installerSourceRoot = Join-Path $buildCacheRoot "installer-source"', content)
         self.assertIn('$pyInstallerWorkRoot = Join-Path $buildCacheRoot "pyinstaller"', content)

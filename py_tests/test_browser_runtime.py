@@ -133,6 +133,7 @@ class BrowserRuntimeTestCase(unittest.TestCase):
             env = playwright_install_environment(target)
 
             self.assertEqual(env["PLAYWRIGHT_BROWSERS_PATH"], str(target))
+            self.assertEqual(env["PYTHONDONTWRITEBYTECODE"], "1")
             self.assertNotIn("PLAYWRIGHT_DOWNLOAD_HOST", env)
             self.assertNotIn("PLAYWRIGHT_CHROMIUM_DOWNLOAD_HOST", env)
             self.assertEqual(env["PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT"], DEFAULT_PLAYWRIGHT_DOWNLOAD_TIMEOUT_MS)

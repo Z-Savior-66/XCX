@@ -25,6 +25,7 @@ class VerifyLocalScriptTestCase(unittest.TestCase):
         content = SCRIPT_PATH.read_text(encoding="utf-8")
 
         self.assertIn('$cacheRoot = Join-Path $projectRoot ".cache"', content)
+        self.assertIn('$env:PYTHONDONTWRITEBYTECODE = "1"', content)
         self.assertIn('$env:PYTHONPYCACHEPREFIX = Join-Path $cacheRoot "pycache"', content)
         self.assertIn("New-Item -ItemType Directory -Path $env:PYTHONPYCACHEPREFIX -Force", content)
 

@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Sequence
 
-from desktop_py.core.fetch_summary_service import (
+sys.dont_write_bytecode = True
+
+from desktop_py.core.fetch_summary_service import (  # noqa: E402
     send_summary,
 )
-from desktop_py.core.fetcher import fetch_account, save_login_state, save_login_state_with_profile
-from desktop_py.core.models import AccountConfig, FetchResult
-from desktop_py.core.notifier import build_summary, send_feishu_text
-from desktop_py.core.session_links import propagate_account_feedback_url, refresh_account_feedback_url
-from desktop_py.core.store import (
+from desktop_py.core.fetcher import fetch_account, save_login_state, save_login_state_with_profile  # noqa: E402
+from desktop_py.core.models import AccountConfig, FetchResult  # noqa: E402
+from desktop_py.core.notifier import build_summary, send_feishu_text  # noqa: E402
+from desktop_py.core.session_links import propagate_account_feedback_url, refresh_account_feedback_url  # noqa: E402
+from desktop_py.core.store import (  # noqa: E402
     load_accounts,
     load_settings,
     save_accounts,

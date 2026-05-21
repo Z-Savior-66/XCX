@@ -86,6 +86,7 @@ function Resolve-OfflineRuntimeSource {
 }
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$env:PYTHONDONTWRITEBYTECODE = "1"
 $cacheRoot = Join-Path $projectRoot ".cache"
 $buildCacheRoot = Join-Path $cacheRoot "build"
 $distRoot = Join-Path $projectRoot "dist"

@@ -1,6 +1,7 @@
 import unittest
+from unittest.mock import patch
 
-from desktop_dev import find_existing_app_pids
+from desktop_dev import ROOT, find_existing_app_pids, spawn_app
 
 
 class DesktopDevTestCase(unittest.TestCase):
@@ -24,6 +25,22 @@ class DesktopDevTestCase(unittest.TestCase):
         result = find_existing_app_pids(processes, current_pid=200)
 
         self.assertEqual(result, [])
+
+    def test_spawn_app_disables_python_bytecode_cache(self):
+        sentinel = object()
+        with (
+            patch.dict("desktop_dev.os.environ", {"EXISTING": "1"}, clear=True),
+            patch("desktop_dev.subprocess.Popen", return_value=sentinel) as popen,
+        ):
+            result = spawn_app()
+
+        self.assertIs(result, sentinel)
+        popen.assert_called_once()
+        args, kwargs = popen.call_args
+        self.assertEqual(args[0][1], "desktop_main.py")
+        self.assertEqual(kwargs["cwd"], ROOT)
+        self.assertEqual(kwargs["env"]["PYTHONDONTWRITEBYTECODE"], "1")
+        self.assertEqual(kwargs["env"]["EXISTING"], "1")
 
 
 if __name__ == "__main__":
