@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from desktop_py.ui.task_runner import WindowTaskRunner
@@ -31,7 +32,7 @@ class FakeThread:
         self.started = True
 
     def enqueue(self, **kwargs):
-        task = type("FakeTask", (), kwargs)()
+        task = SimpleNamespace(**kwargs)
         self.tasks.append(task)
         return task
 
@@ -164,6 +165,60 @@ class TaskRunnerTestCase(unittest.TestCase):
         self.assertIn("后台任务已取消。", logs)
         self.assertEqual(statuses[-1], "后台任务已取消")
         self.assertEqual(status_messages[-1], ("后台任务已取消", 4000))
+
+    def test_success_callback_error_is_logged_without_escaping(self):
+        logs: list[str] = []
+        statuses: list[str] = []
+        status_messages: list[tuple[str, int]] = []
+        runner = WindowTaskRunner(
+            parent=object(),
+            threads=[],
+            append_log=logs.append,
+            update_action_buttons=lambda: None,
+            set_status_text=statuses.append,
+            status_message=lambda message, timeout: status_messages.append((message, timeout)),
+        )
+
+        def fail_success(_result):
+            raise RuntimeError("保存失败")
+
+        with patch("desktop_py.ui.task_runner.TaskThread", FakeThread):
+            runner.run(lambda log: None, fail_success)
+
+        worker = runner._worker
+        task = runner._pending_tasks[0]
+        worker.task_succeeded.callbacks[0](task, object())
+
+        self.assertIn("任务失败：后台任务回调处理失败：保存失败", logs)
+        self.assertEqual(statuses[-1], "后台任务回调处理失败")
+        self.assertEqual(status_messages[-1], ("后台任务回调处理失败", 4000))
+
+    def test_progress_callback_error_is_logged_without_escaping(self):
+        logs: list[str] = []
+        statuses: list[str] = []
+        status_messages: list[tuple[str, int]] = []
+        runner = WindowTaskRunner(
+            parent=object(),
+            threads=[],
+            append_log=logs.append,
+            update_action_buttons=lambda: None,
+            set_status_text=statuses.append,
+            status_message=lambda message, timeout: status_messages.append((message, timeout)),
+        )
+
+        def fail_progress(_payload):
+            raise RuntimeError("刷新失败")
+
+        with patch("desktop_py.ui.task_runner.TaskThread", FakeThread):
+            runner.run(lambda log: None, lambda _result: None, on_progress=fail_progress)
+
+        worker = runner._worker
+        task = runner._pending_tasks[0]
+        worker.task_progress.callbacks[0](task, object())
+
+        self.assertIn("任务失败：后台任务回调处理失败：刷新失败", logs)
+        self.assertEqual(statuses[-1], "后台任务回调处理失败")
+        self.assertEqual(status_messages[-1], ("后台任务回调处理失败", 4000))
 
 
 if __name__ == "__main__":

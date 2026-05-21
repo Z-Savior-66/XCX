@@ -89,7 +89,10 @@ class WindowTaskRunner:
         self._worker = None
 
     def _handle_task_succeeded(self, task: QueuedTask, result: Any) -> None:
-        task.on_success(result)
+        try:
+            task.on_success(result)
+        except Exception as exc:
+            self._handle_callback_error(task, exc)
 
     def _handle_task_message(self, task: QueuedTask, message: str) -> None:
         if task.emit_log:
@@ -97,11 +100,21 @@ class WindowTaskRunner:
 
     def _handle_task_progress(self, task: QueuedTask, payload: Any) -> None:
         if task.on_progress is not None:
-            task.on_progress(payload)
+            try:
+                task.on_progress(payload)
+            except Exception as exc:
+                self._handle_callback_error(task, exc)
 
     def _handle_task_failed(self, task: QueuedTask, message: str) -> None:
         if task.emit_failure_log:
             self._append_log(f"任务失败：{message}")
+
+    def _handle_callback_error(self, task: QueuedTask, exc: Exception) -> None:
+        if task.emit_failure_log:
+            self._append_log(f"任务失败：后台任务回调处理失败：{exc}")
+        if task.update_status:
+            self._status_message("后台任务回调处理失败", 4000)
+            self._set_status_text("后台任务回调处理失败")
 
     def _handle_task_cancelled(self, _task: QueuedTask, _message: str) -> None:
         self._append_log("后台任务已取消。")
