@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton,
 
 class MessageIcon(QWidget):
     def __init__(self, tone: str = "info", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         self._tone = tone
         self.setFixedSize(34, 34)
 

@@ -6,6 +6,7 @@ from py_tests.ui_test_support import (
     MainWindow,
     Path,
     QKeyEvent,
+    QTimer,
     Qt,
     TemporaryDirectory,
     UiTestBase,
@@ -421,6 +422,37 @@ class UiAccountTestCase(UiTestBase):
         self.assertEqual([account.name for account in window.accounts], ["主账号", "导入账号A"])
         mock_confirm.assert_called_once()
         mock_save.assert_not_called()
+
+    def test_delete_button_click_uses_real_confirm_dialog(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window.accounts = [
+            AccountConfig(name="主账号", state_path="storage/shared.json", is_entry_account=True),
+            AccountConfig(name="导入账号A", state_path="storage/shared.json", is_entry_account=False),
+        ]
+        window.refresh_table()
+        window.table.selectRow(1)
+        confirm_errors = []
+
+        def accept_confirm_dialog():
+            dialog = self.app.activeModalWidget()
+            if dialog is None:
+                confirm_errors.append("确认弹窗未打开")
+                return
+            button = dialog.findChild(type(window.delete_button), "confirmButton")
+            if button is None:
+                confirm_errors.append("确认按钮未找到")
+                dialog.reject()
+                return
+            button.click()
+
+        with patch("desktop_py.ui.main_window.save_accounts") as mock_save:
+            QTimer.singleShot(0, accept_confirm_dialog)
+            window.delete_button.click()
+
+        self.assertEqual(confirm_errors, [])
+        self.assertEqual([account.name for account in window.accounts], ["主账号"])
+        mock_save.assert_called_once()
 
     def test_entry_account_row_shows_current_main_account(self):
         window = MainWindow()

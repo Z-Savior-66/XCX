@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
@@ -31,6 +31,7 @@ __all__ = [
     "TemporaryDirectory",
     "patch",
     "Qt",
+    "QTimer",
     "QCloseEvent",
     "QKeyEvent",
     "QApplication",
