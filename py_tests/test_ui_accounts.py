@@ -1,3 +1,5 @@
+from PySide6.QtWidgets import QFrame
+
 from py_tests.ui_test_support import (
     SHARED_BROWSER_PROFILE_DIR_NAME,
     AccountConfig,
@@ -23,25 +25,35 @@ class UiAccountTestCase(UiTestBase):
         self.assertEqual(account.state_path, "storage/demo.json")
         self.assertTrue(account.is_entry_account)
 
-    def test_browse_button_enabled_only_when_profile_input_focused(self):
+    def test_global_settings_are_opened_from_settings_button(self):
         window = MainWindow()
         self.addCleanup(window.close)
         window.show()
         self.app.processEvents()
 
-        self.assertFalse(window.browse_profile_button.isEnabled())
+        self.assertIsNotNone(window.settings_button)
+        self.assertTrue(window.settings_button.isVisible())
+        self.assertEqual(window.settings_button.text(), "设置")
+        self.assertIsNone(window.findChild(QFrame, "settingsBox"))
+        self.assertFalse(window.webhook_edit.isVisible())
+        self.assertFalse(window.profile_dir_edit.isVisible())
 
-        window.profile_dir_edit.setFocus()
-        self.app.processEvents()
-        self.assertTrue(window.browse_profile_button.isEnabled())
+        actions_card = window.findChild(QFrame, "actionsCard")
+        self.assertIsNotNone(actions_card)
+        account_card = window.table.parentWidget()
+        body_grid = window.centralWidget().layout().itemAt(1).layout()
+        account_card_position = body_grid.getItemPosition(body_grid.indexOf(account_card))
+        actions_card_position = body_grid.getItemPosition(body_grid.indexOf(actions_card))
+        self.assertEqual(account_card_position, (0, 0, 2, 1))
+        self.assertEqual(actions_card_position[:2], (0, 1))
 
-        window.browse_profile_button.setFocus()
-        self.app.processEvents()
-        self.assertTrue(window.browse_profile_button.isEnabled())
-
-        window.webhook_edit.setFocus()
-        self.app.processEvents()
-        self.assertFalse(window.browse_profile_button.isEnabled())
+        header_layout = actions_card.layout().itemAt(0).layout()
+        self.assertIs(header_layout.itemAt(1).widget(), window.settings_button)
+        actions_grid = actions_card.layout().itemAt(1).layout()
+        self.assertEqual(actions_grid.getItemPosition(actions_grid.indexOf(window.delete_button))[:2], (0, 3))
+        self.assertEqual(actions_grid.getItemPosition(actions_grid.indexOf(window.stop_fetch_button))[:2], (1, 3))
+        self.assertEqual(actions_grid.getItemPosition(actions_grid.indexOf(window.auto_fetch_push_switch))[:2], (2, 3))
+        self.assertEqual(window.settings_button.width(), window.delete_button.width())
 
     def test_imported_account_cannot_save_login_state(self):
         window = MainWindow()

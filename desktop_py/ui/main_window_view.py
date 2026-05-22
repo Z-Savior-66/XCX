@@ -30,6 +30,7 @@ from desktop_py.ui.account_presenter import (
 )
 
 MAX_LOG_BLOCK_COUNT = 200
+ACTION_COLUMN_BUTTON_WIDTH = 158
 PROCESS_LOG_PREFIXES = (
     "已切换到账号：",
     "当前已是目标账号：",
@@ -93,19 +94,17 @@ def build_ui(window: Any, hover_table_cls: type, row_highlight_delegate_cls: typ
     body_layout.setHorizontalSpacing(14)
     body_layout.setVerticalSpacing(14)
 
-    settings_panel = build_settings_box(window)
+    build_hidden_settings_fields(window, central)
     actions_panel = build_actions_card(window)
     account_panel = wrap_card("账号概览", "集中查看账号状态、截止时间与最近抓取结果。", window.table)
     log_panel = wrap_card("运行日志", "保留后台任务回传信息，便于排查失败原因。", window.log_edit)
 
-    settings_panel.setMinimumHeight(210)
     actions_panel.setMinimumHeight(210)
     account_panel.setMinimumHeight(510)
     log_panel.setMinimumHeight(510)
 
-    body_layout.addWidget(settings_panel, 0, 0)
+    body_layout.addWidget(account_panel, 0, 0, 2, 1)
     body_layout.addWidget(actions_panel, 0, 1)
-    body_layout.addWidget(account_panel, 1, 0)
     body_layout.addWidget(log_panel, 1, 1)
     body_layout.setColumnStretch(0, 1)
     body_layout.setColumnStretch(1, 1)
@@ -165,45 +164,48 @@ def build_settings_box(window: Any) -> QWidget:
 
     title = QLabel("全局设置")
     title.setObjectName("sectionTitle")
-    subtitle = QLabel("统一维护通知、共享浏览器资料目录。")
+    subtitle = QLabel("飞书 Webhook、共享浏览器资料目录和开机自启统一放在设置弹窗中维护。")
     subtitle.setObjectName("sectionSubtitle")
     subtitle.setWordWrap(True)
 
     wrapper.addWidget(title)
     wrapper.addWidget(subtitle)
 
-    form = QWidget()
-    layout = QGridLayout(form)
-    layout.setContentsMargins(0, 0, 0, 0)
-    layout.setHorizontalSpacing(12)
-    layout.setVerticalSpacing(12)
-    window.webhook_edit = QLineEdit(window.settings.feishu_webhook)
-    window.profile_dir_edit = QLineEdit(window.settings.browser_profile_dir)
-    window.webhook_edit.setPlaceholderText("填写飞书机器人 Webhook，用于汇总推送")
-    window.profile_dir_edit.setPlaceholderText("可选，复用共享浏览器资料目录")
-
-    layout.addWidget(QLabel("飞书 Webhook"), 0, 0)
-    layout.addWidget(window.webhook_edit, 0, 1, 1, 3)
-    layout.addWidget(QLabel("共享浏览器资料目录"), 1, 0)
-    layout.addWidget(window.profile_dir_edit, 1, 1, 1, 3)
-    browse_button = QPushButton("选择目录")
+    window.webhook_edit = QLineEdit(window.settings.feishu_webhook, frame)
+    window.profile_dir_edit = QLineEdit(window.settings.browser_profile_dir, frame)
+    window.webhook_edit.hide()
+    window.profile_dir_edit.hide()
+    browse_button = QPushButton("选择目录", frame)
+    browse_button.hide()
     window.browse_profile_button = browse_button
     window.browse_profile_button.setEnabled(False)
-    window.browse_profile_button.setProperty("role", "primary")
-    window.browse_profile_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-    browse_button.clicked.connect(window.choose_profile_dir)
-    layout.addWidget(browse_button, 2, 2)
+    window.webhook_edit.installEventFilter(window)
     window.profile_dir_edit.installEventFilter(window)
     window.browse_profile_button.installEventFilter(window)
 
-    save_button = QPushButton("保存设置")
-    save_button.setProperty("role", "primary")
-    save_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-    save_button.clicked.connect(window.save_current_settings)
-    layout.addWidget(save_button, 2, 3)
-    layout.setColumnStretch(1, 1)
-    wrapper.addWidget(form)
+    wrapper.addStretch(1)
+    settings_button = QPushButton("打开设置")
+    settings_button.setObjectName("settingsButton")
+    settings_button.setProperty("role", "primary")
+    settings_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+    settings_button.clicked.connect(window.open_settings_dialog)
+    window.settings_button = settings_button
+    wrapper.addWidget(settings_button, 0, Qt.AlignmentFlag.AlignRight)
     return frame
+
+
+def build_hidden_settings_fields(window: Any, parent: QWidget) -> None:
+    window.webhook_edit = QLineEdit(window.settings.feishu_webhook, parent)
+    window.profile_dir_edit = QLineEdit(window.settings.browser_profile_dir, parent)
+    window.webhook_edit.hide()
+    window.profile_dir_edit.hide()
+    browse_button = QPushButton("选择目录", parent)
+    browse_button.hide()
+    window.browse_profile_button = browse_button
+    window.browse_profile_button.setEnabled(False)
+    window.webhook_edit.installEventFilter(window)
+    window.profile_dir_edit.installEventFilter(window)
+    window.browse_profile_button.installEventFilter(window)
 
 
 def event_filter(
@@ -236,14 +238,30 @@ def build_actions_card(window: Any) -> QWidget:
     wrapper.setContentsMargins(16, 14, 16, 14)
     wrapper.setSpacing(8)
 
+    header = QHBoxLayout()
+    header.setContentsMargins(0, 0, 0, 0)
+    header.setSpacing(12)
+    copy = QVBoxLayout()
+    copy.setContentsMargins(0, 0, 0, 0)
+    copy.setSpacing(4)
     title = QLabel("快捷操作")
     title.setObjectName("sectionTitle")
     subtitle = QLabel("按常用流程组织动作，先维护账号，再保存或校验登录态，最后执行抓取或发送汇总。")
     subtitle.setObjectName("sectionSubtitle")
     subtitle.setWordWrap(True)
+    copy.addWidget(title)
+    copy.addWidget(subtitle)
+    settings_button = QPushButton("设置")
+    settings_button.setObjectName("settingsButton")
+    settings_button.setProperty("role", "primary")
+    settings_button.setFixedWidth(ACTION_COLUMN_BUTTON_WIDTH)
+    settings_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+    settings_button.clicked.connect(window.open_settings_dialog)
+    window.settings_button = settings_button
+    header.addLayout(copy, stretch=1)
+    header.addWidget(settings_button, 0, Qt.AlignmentFlag.AlignTop)
 
-    wrapper.addWidget(title)
-    wrapper.addWidget(subtitle)
+    wrapper.addLayout(header)
     wrapper.addLayout(build_actions(window))
     return frame
 
@@ -259,9 +277,9 @@ def build_actions(window: Any) -> QGridLayout:
         ("删除账号", window.delete_account, 0, 3),
         ("导入账号", window.import_accounts, 1, 0),
         ("停止抓取", window.stop_fetching, 1, 3),
-        ("抓取并推送", window.auto_fetch_and_send, 2, 2),
         ("抓取选中", window.fetch_selected, 2, 0),
         ("推送飞书", window.send_summary, 2, 1),
+        ("抓取并推送", window.auto_fetch_and_send, 2, 2),
     ]
     for text, handler, row, col in actions:
         button = QPushButton(text)

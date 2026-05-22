@@ -90,6 +90,11 @@ class BuildInstallerScriptTestCase(unittest.TestCase):
             content,
         )
 
+    def test_build_script_initial_settings_include_startup_option(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn('"startup_enabled": false', content)
+
     def test_installer_uses_branded_release_metadata(self):
         content = INSTALLER_ISS_PATH.read_text(encoding="utf-8")
 

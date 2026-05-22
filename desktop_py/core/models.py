@@ -50,6 +50,7 @@ class AppSettings:
     browser_profile_dir: str = ""
     current_main_account_name: str = ""
     auto_fetch_push_enabled: bool = False
+    startup_enabled: bool = False
     diagnostic_retention_days: int = 14
     next_auto_renew_at: str = ""
     next_auto_fetch_push_at: str = ""

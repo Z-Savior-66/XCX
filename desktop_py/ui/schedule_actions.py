@@ -256,7 +256,9 @@ def run_auto_fetch_push(window: Any) -> None:
     if window._threads:
         window.append_log("自动抓取推送已跳过：当前存在后台任务。")
         return
-    webhook = window.webhook_edit.text().strip() or window.settings.feishu_webhook.strip()
+    webhook_edit = getattr(window, "webhook_edit", None)
+    webhook_text = webhook_edit.text().strip() if webhook_edit is not None else ""
+    webhook = webhook_text or window.settings.feishu_webhook.strip()
     if not webhook:
         window.append_log("自动抓取推送已跳过：未配置飞书 Webhook。")
         return

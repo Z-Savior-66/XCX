@@ -30,6 +30,7 @@ from desktop_py.core.fetcher_common import Logger
 from desktop_py.core.fetcher_runtime import close_all_group_runtimes
 from desktop_py.core.models import AccountConfig, AppSettings, FetchResult
 from desktop_py.core.notifier import build_summary, send_feishu_text
+from desktop_py.core.startup import get_startup_enabled, set_startup_enabled
 from desktop_py.core.store import (
     cleanup_account_diagnostics,
     default_state_path,
@@ -241,6 +242,7 @@ from desktop_py.ui.main_window_view import (
 )
 from desktop_py.ui.main_window_widgets import HoverTableWidget, RowHighlightDelegate, ToggleActionButton
 from desktop_py.ui.message_dialog import MessageDialog
+from desktop_py.ui.settings_dialog import SettingsDialog
 from desktop_py.ui.task_runner import WindowTaskRunner
 from desktop_py.ui.workers import TaskThread
 
@@ -295,6 +297,7 @@ class MainWindow(QMainWindow):
         self.stop_fetch_button: QPushButton | None = None
         self.delete_button: QPushButton | None = None
         self.browse_profile_button: QPushButton | None = None
+        self.settings_button: QPushButton | None = None
         self.auto_fetch_push_switch: QPushButton | None = None
         self.tray_icon: QSystemTrayIcon | None = None
         self._allow_close = False
@@ -447,6 +450,32 @@ class MainWindow(QMainWindow):
             validate_shared_browser_profile_dir_fn=validate_shared_browser_profile_dir,
             save_settings_fn=save_settings,
         )
+
+    def open_settings_dialog(self) -> None:
+        startup_enabled = get_startup_enabled()
+        dialog = SettingsDialog(
+            self.settings,
+            startup_enabled=startup_enabled,
+            parent=self,
+            file_dialog=QFileDialog,
+            prepare_shared_browser_profile_dir_fn=prepare_shared_browser_profile_dir,
+            validate_shared_browser_profile_dir_fn=validate_shared_browser_profile_dir,
+        )
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        try:
+            settings = dialog.build_settings()
+            if settings.startup_enabled != startup_enabled:
+                set_startup_enabled(settings.startup_enabled)
+            save_settings(settings)
+        except (OSError, RuntimeError, ValueError) as exc:
+            self._show_warning("设置保存失败", str(exc))
+            return
+        self.settings = settings
+        self.webhook_edit.setText(settings.feishu_webhook)
+        self.profile_dir_edit.setText(settings.browser_profile_dir)
+        self._apply_auto_fetch_push_schedule()
+        self.append_log("设置已保存。")
 
     def choose_profile_dir(self) -> None:
         choose_profile_dir_impl(

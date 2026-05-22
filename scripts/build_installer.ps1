@@ -192,6 +192,7 @@ try {
   "browser_profile_dir": "",
   "current_main_account_name": "",
   "auto_fetch_push_enabled": false,
+  "startup_enabled": false,
   "diagnostic_retention_days": 14
 }
 '@
