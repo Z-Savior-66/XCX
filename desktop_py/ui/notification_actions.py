@@ -6,6 +6,12 @@ from desktop_py.core.account_status import AUTO_PUSH_SKIP_NOTE
 from desktop_py.core.fetch_summary_service import (
     send_summary as send_summary_service,
 )
+from desktop_py.core.notification_state_service import (
+    actual_account_name_from_note as actual_account_name_from_note_service,
+)
+from desktop_py.core.notification_state_service import (
+    clear_pushed_fetch_state as clear_pushed_fetch_state_service,
+)
 from desktop_py.ui.fetch_actions import _enabled_imported_accounts
 
 
@@ -98,14 +104,7 @@ def send_summary_with_webhook(
 
 
 def clear_pushed_fetch_state(window: Any, *, save_accounts_fn: Any) -> None:
-    for account in window.accounts:
-        if account.is_entry_account or not account.enabled:
-            continue
-        if account.last_status != "抓取成功":
-            continue
-        account.last_deadline = ""
-        account.last_status = ""
-        account.last_note = ""
+    clear_pushed_fetch_state_service(window.accounts)
     window.refresh_table()
     try:
         save_accounts_fn(window.accounts)
@@ -115,8 +114,4 @@ def clear_pushed_fetch_state(window: Any, *, save_accounts_fn: Any) -> None:
 
 
 def actual_account_name_from_note(note: str, *, actual_account_prefix: str) -> str:
-    for part in note.split("；"):
-        text = part.strip()
-        if text.startswith(actual_account_prefix):
-            return text.removeprefix(actual_account_prefix).strip()
-    return ""
+    return actual_account_name_from_note_service(note, actual_account_prefix=actual_account_prefix)

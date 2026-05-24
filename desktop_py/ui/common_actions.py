@@ -12,6 +12,7 @@ def initialize_window_state(
     ensure_runtime_dirs_fn: Any,
     load_accounts_fn: Any,
     load_settings_fn: Any,
+    load_schedule_state_fn: Any,
     save_accounts_fn: Any,
     reset_current_main_account_name_fn: Any,
 ) -> None:
@@ -23,6 +24,7 @@ def initialize_window_state(
         except PermissionError:
             pass
     window.settings = load_settings_fn()
+    window.schedule_state = load_schedule_state_fn()
     reset_current_main_account_name_fn()
 
 

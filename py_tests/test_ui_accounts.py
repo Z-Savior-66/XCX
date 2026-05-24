@@ -312,6 +312,19 @@ class UiAccountTestCase(UiTestBase):
         self.assertEqual(window.settings.login_wait_seconds, 45)
         self.assertEqual(mock_save_settings.call_args.args[0].login_wait_seconds, 45)
 
+    def test_save_current_settings_preserves_startup_enabled_value(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window.settings.startup_enabled = True
+
+        with (
+            patch("desktop_py.ui.main_window.validate_shared_browser_profile_dir", return_value=""),
+            patch("desktop_py.ui.main_window.save_settings"),
+        ):
+            window.save_current_settings()
+
+        self.assertTrue(window.settings.startup_enabled)
+
     def test_account_action_logs_use_short_success_messages(self):
         window = MainWindow()
         self.addCleanup(window.close)

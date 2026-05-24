@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from desktop_py.core.store import DATA_DIR
 
 DEFAULT_FETCH_RULE_VERSION = "2026-05-14.v1"
+TRANSACTION_COMPLAINT_RULES_FILE_NAME = "transaction_complaint_rules.json"
 
 
 @dataclass(frozen=True)
@@ -131,6 +137,63 @@ DEFAULT_TRANSACTION_COMPLAINT_RULES = TransactionComplaintRuleSet(
     pending_status_text="待处理",
     page_size=50,
 )
+
+
+def transaction_complaint_rules_file(path: Path | None = None) -> Path:
+    if path is not None:
+        return path
+    data_path = DATA_DIR / TRANSACTION_COMPLAINT_RULES_FILE_NAME
+    if data_path.exists():
+        return data_path
+    return Path(__file__).resolve().with_name(TRANSACTION_COMPLAINT_RULES_FILE_NAME)
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except TypeError, ValueError:
+        return default
+
+
+def _string_tuple(value: Any, default: tuple[str, ...]) -> tuple[str, ...]:
+    if value is None:
+        return default
+    if not isinstance(value, list):
+        return default
+    return tuple(text for item in value if (text := str(item).strip()))
+
+
+def transaction_complaint_rules_from_mapping(
+    mapping: dict[str, Any],
+    *,
+    default_rules: TransactionComplaintRuleSet = DEFAULT_TRANSACTION_COMPLAINT_RULES,
+) -> TransactionComplaintRuleSet:
+    pending_status = _safe_int(
+        mapping.get("pending_status", default_rules.pending_status), default_rules.pending_status
+    )
+    page_size = max(1, _safe_int(mapping.get("page_size", default_rules.page_size), default_rules.page_size))
+    return TransactionComplaintRuleSet(
+        version=str(mapping.get("version", default_rules.version) or default_rules.version).strip()
+        or default_rules.version,
+        target_account_names=_string_tuple(mapping.get("target_account_names"), default_rules.target_account_names),
+        pending_status=pending_status,
+        pending_status_text=str(
+            mapping.get("pending_status_text", default_rules.pending_status_text) or default_rules.pending_status_text
+        ).strip()
+        or default_rules.pending_status_text,
+        page_size=page_size,
+    )
+
+
+def load_transaction_complaint_rules(path: Path | None = None) -> TransactionComplaintRuleSet:
+    rules_file = transaction_complaint_rules_file(path)
+    try:
+        payload = json.loads(rules_file.read_text(encoding="utf-8-sig"))
+    except OSError, json.JSONDecodeError:
+        return DEFAULT_TRANSACTION_COMPLAINT_RULES
+    if not isinstance(payload, dict):
+        return DEFAULT_TRANSACTION_COMPLAINT_RULES
+    return transaction_complaint_rules_from_mapping(payload)
 
 
 def deadline_field_score(path: str, rules: RefundRuleSet = DEFAULT_REFUND_RULES) -> int:

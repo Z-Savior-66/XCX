@@ -10,7 +10,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, cast
 
-from desktop_py.core.models import AccountConfig, AppSettings, FetchResult
+from desktop_py.core.models import AccountConfig, AppSettings, FetchResult, ScheduleState
 
 APP_NAME = "小程序工具"
 SHARED_BROWSER_PROFILE_DIR_NAME = "browser_profile"
@@ -45,6 +45,7 @@ STORAGE_DIR = PROJECT_ROOT / "storage"
 PY_OUTPUT_DIR = PROJECT_ROOT / "output" / "desktop_py"
 ACCOUNTS_FILE = DATA_DIR / "accounts.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
+SCHEDULE_STATE_FILE = DATA_DIR / "schedule_state.json"
 RUNNING_INSTANCE_LOCK_FILE = DATA_DIR / "app.lock"
 DIAGNOSTIC_INDEX_FILE = PY_OUTPUT_DIR / "diagnostic_index.json"
 DIAGNOSTIC_ARTIFACT_NAMES = frozenset(
@@ -314,6 +315,40 @@ def load_settings() -> AppSettings:
 def save_settings(settings: AppSettings) -> None:
     ensure_runtime_dirs()
     _write_text_atomic(SETTINGS_FILE, json.dumps(settings.to_dict(), ensure_ascii=False, indent=2) + "\n")
+
+
+def _schedule_state_from_mapping(raw: dict[str, Any]) -> ScheduleState:
+    allowed = {item.name for item in fields(ScheduleState)}
+    filtered = {key: value for key, value in raw.items() if key in allowed}
+    return ScheduleState(**filtered)
+
+
+def _legacy_schedule_state_from_settings() -> ScheduleState:
+    try:
+        raw = read_json_file(SETTINGS_FILE)
+    except OSError, json.JSONDecodeError:
+        return ScheduleState()
+    if not isinstance(raw, dict):
+        return ScheduleState()
+    return _schedule_state_from_mapping(raw)
+
+
+def load_schedule_state() -> ScheduleState:
+    ensure_runtime_dirs()
+    default_content = json.dumps(ScheduleState().to_dict(), ensure_ascii=False, indent=2) + "\n"
+    if not SCHEDULE_STATE_FILE.exists():
+        state = _legacy_schedule_state_from_settings()
+        _write_text_atomic(SCHEDULE_STATE_FILE, json.dumps(state.to_dict(), ensure_ascii=False, indent=2) + "\n")
+        return state
+    raw = cast(dict[str, Any], _read_json_file_or_recover(SCHEDULE_STATE_FILE, default_content))
+    if not isinstance(raw, dict):
+        return ScheduleState()
+    return _schedule_state_from_mapping(raw)
+
+
+def save_schedule_state(state: ScheduleState) -> None:
+    ensure_runtime_dirs()
+    _write_text_atomic(SCHEDULE_STATE_FILE, json.dumps(state.to_dict(), ensure_ascii=False, indent=2) + "\n")
 
 
 def account_state_path(name: str) -> str:

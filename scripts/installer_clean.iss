@@ -151,6 +151,7 @@ Name: "{app}\output"
 Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "data\*,storage\*,browser_profile\*,output\*"
 Source: "{#MySourceDir}\data\accounts.json"; DestDir: "{app}\data"; Flags: ignoreversion onlyifdoesntexist
 Source: "{#MySourceDir}\data\settings.json"; DestDir: "{app}\data"; Flags: ignoreversion onlyifdoesntexist
+Source: "{#MySourceDir}\data\transaction_complaint_rules.json"; DestDir: "{app}\data"; Flags: ignoreversion onlyifdoesntexist
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

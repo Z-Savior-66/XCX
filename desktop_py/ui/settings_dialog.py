@@ -211,9 +211,4 @@ class SettingsDialog(QDialog):
             auto_fetch_push_enabled=self._settings.auto_fetch_push_enabled,
             startup_enabled=self.startup_switch.isChecked(),
             diagnostic_retention_days=self._settings.diagnostic_retention_days,
-            next_auto_renew_at=self._settings.next_auto_renew_at,
-            next_auto_fetch_push_at=self._settings.next_auto_fetch_push_at,
-            auto_renew_schedule_reason=self._settings.auto_renew_schedule_reason,
-            auto_fetch_push_schedule_reason=self._settings.auto_fetch_push_schedule_reason,
-            schedule_reason=self._settings.schedule_reason,
         )

@@ -28,7 +28,7 @@ from desktop_py.core.fetcher import (
 )
 from desktop_py.core.fetcher_common import Logger
 from desktop_py.core.fetcher_runtime import close_all_group_runtimes
-from desktop_py.core.models import AccountConfig, AppSettings, FetchResult
+from desktop_py.core.models import AccountConfig, AppSettings, FetchResult, ScheduleState
 from desktop_py.core.notifier import build_summary, send_feishu_text
 from desktop_py.core.startup import get_startup_enabled, set_startup_enabled
 from desktop_py.core.store import (
@@ -36,9 +36,11 @@ from desktop_py.core.store import (
     default_state_path,
     ensure_runtime_dirs,
     load_accounts,
+    load_schedule_state,
     load_settings,
     prepare_shared_browser_profile_dir,
     save_accounts,
+    save_schedule_state,
     save_settings,
     validate_shared_browser_profile_dir,
 )
@@ -268,11 +270,13 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.accounts: list[AccountConfig] = []
         self.settings = AppSettings()
+        self.schedule_state = ScheduleState()
         initialize_window_state_impl(
             self,
             ensure_runtime_dirs_fn=ensure_runtime_dirs,
             load_accounts_fn=load_accounts,
             load_settings_fn=load_settings,
+            load_schedule_state_fn=load_schedule_state,
             save_accounts_fn=save_accounts,
             reset_current_main_account_name_fn=self._reset_current_main_account_name,
         )
@@ -449,6 +453,7 @@ class MainWindow(QMainWindow):
             app_settings_cls=AppSettings,
             validate_shared_browser_profile_dir_fn=validate_shared_browser_profile_dir,
             save_settings_fn=save_settings,
+            save_schedule_state_fn=save_schedule_state,
         )
 
     def open_settings_dialog(self) -> None:
@@ -561,7 +566,7 @@ class MainWindow(QMainWindow):
         handle_auto_fetch_push_toggled_impl(self, checked, save_settings_fn=save_settings)
 
     def _apply_auto_fetch_push_schedule(self) -> None:
-        apply_auto_fetch_push_schedule_impl(self, save_settings_fn=save_settings)
+        apply_auto_fetch_push_schedule_impl(self, save_schedule_state_fn=save_schedule_state)
 
     def _milliseconds_until_next_auto_fetch_push(self, now: datetime | None = None) -> int:
         return milliseconds_until_next_auto_fetch_push_impl(
@@ -576,7 +581,7 @@ class MainWindow(QMainWindow):
             self,
             min_auto_renew_interval_ms=AUTO_RENEW_INTERVAL_MIN_MS,
             max_auto_renew_interval_ms=AUTO_RENEW_INTERVAL_MAX_MS,
-            save_settings_fn=save_settings,
+            save_schedule_state_fn=save_schedule_state,
         )
 
     def _handle_auto_renew_timeout(self) -> None:
@@ -587,7 +592,7 @@ class MainWindow(QMainWindow):
             self,
             renew_account_state_fn=self._call_renew_account_state,
             close_all_group_runtimes_fn=close_all_group_runtimes,
-            save_settings_fn=save_settings,
+            save_schedule_state_fn=save_schedule_state,
         )
 
     def _mark_auto_renew_result(self, account: AccountConfig, valid: bool) -> None:

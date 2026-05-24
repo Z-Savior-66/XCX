@@ -41,24 +41,27 @@ class UiSchedulingTestCase(UiTestBase):
     def test_save_current_settings_preserves_schedule_state(self):
         window = MainWindow()
         self.addCleanup(window.close)
-        window.settings.next_auto_renew_at = "2026-05-18 12:00:00"
-        window.settings.next_auto_fetch_push_at = "2026-05-19 09:00:00"
-        window.settings.auto_renew_schedule_reason = "失败退避"
-        window.settings.auto_fetch_push_schedule_reason = "每天 09:00 自动执行"
-        window.settings.schedule_reason = "失败退避"
+        window.schedule_state.next_auto_renew_at = "2026-05-18 12:00:00"
+        window.schedule_state.next_auto_fetch_push_at = "2026-05-19 09:00:00"
+        window.schedule_state.auto_renew_schedule_reason = "失败退避"
+        window.schedule_state.auto_fetch_push_schedule_reason = "每天 09:00 自动执行"
+        window.schedule_state.schedule_reason = "失败退避"
 
         with (
             patch("desktop_py.ui.main_window.save_settings") as mock_save_settings,
+            patch("desktop_py.ui.main_window.save_schedule_state") as mock_save_schedule_state,
             patch.object(window, "_apply_auto_fetch_push_schedule"),
         ):
             window.save_current_settings()
 
         saved_settings = mock_save_settings.call_args.args[0]
-        self.assertEqual(saved_settings.next_auto_renew_at, "2026-05-18 12:00:00")
-        self.assertEqual(saved_settings.next_auto_fetch_push_at, "2026-05-19 09:00:00")
-        self.assertEqual(saved_settings.auto_renew_schedule_reason, "失败退避")
-        self.assertEqual(saved_settings.auto_fetch_push_schedule_reason, "每天 09:00 自动执行")
-        self.assertEqual(saved_settings.schedule_reason, "失败退避")
+        saved_schedule_state = mock_save_schedule_state.call_args.args[0]
+        self.assertFalse(hasattr(saved_settings, "next_auto_renew_at"))
+        self.assertEqual(saved_schedule_state.next_auto_renew_at, "2026-05-18 12:00:00")
+        self.assertEqual(saved_schedule_state.next_auto_fetch_push_at, "2026-05-19 09:00:00")
+        self.assertEqual(saved_schedule_state.auto_renew_schedule_reason, "失败退避")
+        self.assertEqual(saved_schedule_state.auto_fetch_push_schedule_reason, "每天 09:00 自动执行")
+        self.assertEqual(saved_schedule_state.schedule_reason, "失败退避")
 
     def test_milliseconds_until_next_auto_fetch_push_before_nine(self):
         window = MainWindow()
@@ -87,12 +90,12 @@ class UiSchedulingTestCase(UiTestBase):
         with patch.object(window, "_milliseconds_until_next_auto_fetch_push", return_value=30 * 60 * 1000):
             apply_auto_fetch_push_schedule(
                 window,
-                save_settings_fn=lambda settings: saved_settings.append(settings.to_dict()),
+                save_schedule_state_fn=lambda state: saved_settings.append(state.to_dict()),
                 now_fn=lambda: datetime(2026, 5, 18, 8, 30, 0),
             )
 
-        self.assertEqual(window.settings.next_auto_fetch_push_at, "2026-05-18 09:00:00")
-        self.assertEqual(window.settings.auto_fetch_push_schedule_reason, "每天 09:00 自动执行")
+        self.assertEqual(window.schedule_state.next_auto_fetch_push_at, "2026-05-18 09:00:00")
+        self.assertEqual(window.schedule_state.auto_fetch_push_schedule_reason, "每天 09:00 自动执行")
         self.assertEqual(saved_settings[-1]["next_auto_fetch_push_at"], "2026-05-18 09:00:00")
 
     def test_apply_auto_fetch_push_schedule_clears_state_when_disabled(self):
@@ -101,16 +104,16 @@ class UiSchedulingTestCase(UiTestBase):
         window = MainWindow()
         self.addCleanup(window.close)
         window.settings.auto_fetch_push_enabled = False
-        window.settings.next_auto_fetch_push_at = "2026-05-18 09:00:00"
-        window.settings.auto_fetch_push_schedule_reason = "每天 09:00 自动执行"
+        window.schedule_state.next_auto_fetch_push_at = "2026-05-18 09:00:00"
+        window.schedule_state.auto_fetch_push_schedule_reason = "每天 09:00 自动执行"
         saved_settings = []
 
         apply_auto_fetch_push_schedule(
-            window, save_settings_fn=lambda settings: saved_settings.append(settings.to_dict())
+            window, save_schedule_state_fn=lambda state: saved_settings.append(state.to_dict())
         )
 
-        self.assertEqual(window.settings.next_auto_fetch_push_at, "")
-        self.assertEqual(window.settings.auto_fetch_push_schedule_reason, "自动抓取推送未开启")
+        self.assertEqual(window.schedule_state.next_auto_fetch_push_at, "")
+        self.assertEqual(window.schedule_state.auto_fetch_push_schedule_reason, "自动抓取推送未开启")
         self.assertEqual(saved_settings[-1]["next_auto_fetch_push_at"], "")
 
     def test_handle_auto_fetch_push_timeout_reschedules_and_runs_job(self):
@@ -199,7 +202,7 @@ class UiSchedulingTestCase(UiTestBase):
 
         with (
             patch("desktop_py.ui.main_window_actions_impl.random.randint", return_value=12345678) as mock_randint,
-            patch("desktop_py.ui.main_window.save_settings"),
+            patch("desktop_py.ui.main_window.save_schedule_state"),
         ):
             window._apply_auto_renew_schedule()
 
@@ -219,12 +222,12 @@ class UiSchedulingTestCase(UiTestBase):
                 window,
                 min_auto_renew_interval_ms=AUTO_RENEW_INTERVAL_MIN_MS,
                 max_auto_renew_interval_ms=AUTO_RENEW_INTERVAL_MAX_MS,
-                save_settings_fn=lambda settings: saved_settings.append(settings.to_dict()),
+                save_schedule_state_fn=lambda state: saved_settings.append(state.to_dict()),
                 now_fn=lambda: datetime(2026, 5, 18, 10, 0, 0),
             )
 
-        self.assertEqual(window.settings.next_auto_renew_at, "2026-05-18 12:00:00")
-        self.assertEqual(window.settings.auto_renew_schedule_reason, "未配置主账号，使用常规巡检间隔")
+        self.assertEqual(window.schedule_state.next_auto_renew_at, "2026-05-18 12:00:00")
+        self.assertEqual(window.schedule_state.auto_renew_schedule_reason, "未配置主账号，使用常规巡检间隔")
         self.assertEqual(saved_settings[-1]["next_auto_renew_at"], "2026-05-18 12:00:00")
 
     def test_apply_auto_renew_schedule_prioritizes_expiring_cookie(self):
@@ -242,7 +245,7 @@ class UiSchedulingTestCase(UiTestBase):
         )()
         with (
             patch("desktop_py.ui.schedule_actions.analyze_storage_state", return_value=report),
-            patch("desktop_py.ui.main_window.save_settings"),
+            patch("desktop_py.ui.main_window.save_schedule_state"),
         ):
             window._apply_auto_renew_schedule()
 
@@ -261,11 +264,11 @@ class UiSchedulingTestCase(UiTestBase):
             )
         ]
 
-        with patch("desktop_py.ui.main_window.save_settings"):
+        with patch("desktop_py.ui.main_window.save_schedule_state"):
             window._apply_auto_renew_schedule()
 
         self.assertEqual(window._auto_renew_timer.interval(), AUTO_RENEW_INTERVAL_MAX_MS * 3)
-        self.assertIn("失败退避", window.settings.auto_renew_schedule_reason)
+        self.assertIn("失败退避", window.schedule_state.auto_renew_schedule_reason)
         self.assertIn("失败退避", window.log_edit.toPlainText())
 
     def test_run_auto_renew_uses_entry_account(self):
@@ -512,15 +515,15 @@ class UiSchedulingTestCase(UiTestBase):
 
             with (
                 patch.object(window, "_run_thread") as mock_run_thread,
-                patch("desktop_py.ui.main_window.save_settings") as mock_save_settings,
+                patch("desktop_py.ui.main_window.save_schedule_state") as mock_save_schedule_state,
             ):
                 window._run_auto_renew()
 
             mock_run_thread.assert_not_called()
-            mock_save_settings.assert_called_once()
+            mock_save_schedule_state.assert_called_once()
             self.assertIn("当前存在后台任务", window.log_edit.toPlainText())
             self.assertEqual(window._auto_renew_timer.interval(), 10 * 60 * 1000)
-            self.assertIn("延后重试", window.settings.auto_renew_schedule_reason)
+            self.assertIn("延后重试", window.schedule_state.auto_renew_schedule_reason)
 
     def test_mark_auto_renew_result_counts_failures_and_resets_on_success(self):
         window = MainWindow()

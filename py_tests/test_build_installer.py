@@ -54,6 +54,15 @@ class BuildInstallerScriptTestCase(unittest.TestCase):
         self.assertIn("Invoke-LocalVerification -ProjectRoot $projectRoot", content)
         self.assertIn("构建前本地验证失败，请修复后重新构建。", content)
 
+    def test_build_script_copies_transaction_complaint_rules(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("desktop_py\\core\\transaction_complaint_rules.json", content)
+        self.assertIn(
+            'Copy-Item -LiteralPath $transactionComplaintRulesPath -Destination (Join-Path $installerSourceDir "data") -Force',
+            content,
+        )
+
     def test_build_script_passes_release_metadata_to_inno(self):
         content = SCRIPT_PATH.read_text(encoding="utf-8")
 
@@ -87,6 +96,10 @@ class BuildInstallerScriptTestCase(unittest.TestCase):
         )
         self.assertIn(
             'Source: "{#MySourceDir}\\data\\settings.json"; DestDir: "{app}\\data"; Flags: ignoreversion onlyifdoesntexist',
+            content,
+        )
+        self.assertIn(
+            'Source: "{#MySourceDir}\\data\\transaction_complaint_rules.json"; DestDir: "{app}\\data"; Flags: ignoreversion onlyifdoesntexist',
             content,
         )
 

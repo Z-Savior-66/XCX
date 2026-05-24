@@ -1,0 +1,10 @@
+{
+  "version": "2026-05-14.v1",
+  "target_account_names": [
+    "当代情诗摘抄合集",
+    "经典诗词摘抄"
+  ],
+  "pending_status": 201,
+  "pending_status_text": "待处理",
+  "page_size": 50
+}

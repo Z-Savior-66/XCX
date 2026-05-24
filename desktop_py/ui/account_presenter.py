@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
+from desktop_py.core.account_state_service import (
+    apply_batch_fetch_results as apply_batch_fetch_results_service,
+)
+from desktop_py.core.account_state_service import (
+    apply_fetch_result as apply_fetch_result_service,
+)
 from desktop_py.core.account_status import (
     FETCH_STATUS_FAILURE,
     FETCH_STATUS_SUCCESS,
-    fetch_status_from_result,
 )
 from desktop_py.core.account_status import (
     display_result_text as display_result_text_from_status,
@@ -13,55 +18,22 @@ from desktop_py.core.account_status import (
 from desktop_py.core.account_status import (
     is_expected_empty_result_note as is_expected_empty_result_note_from_core,
 )
-from desktop_py.core.models import SESSION_STATUS_VALID, AccountConfig, FetchResult
+from desktop_py.core.models import AccountConfig, FetchResult
+from desktop_py.core.schedule_state_service import (
+    next_auto_fetch_push_interval_ms as next_auto_fetch_push_interval_ms_service,
+)
 
 
 def next_auto_fetch_push_interval_ms(now: datetime | None = None) -> int:
-    current = now or datetime.now()
-    target = current.replace(hour=9, minute=0, second=0, microsecond=0)
-    if current >= target:
-        target += timedelta(days=1)
-    return max(int((target - current).total_seconds() * 1000), 1)
+    return next_auto_fetch_push_interval_ms_service(now)
 
 
 def apply_fetch_result(account: AccountConfig, result: FetchResult) -> str:
-    account.last_fetch_at = result.fetched_at
-    account.last_deadline = result.deadline_text
-    account.last_status = fetch_status_from_result(result.ok, result.note)
-    actual_note = f"当前实际账号：{result.actual_account_name}" if result.actual_account_name else ""
-    account.last_note = "；".join(item for item in [result.note, actual_note] if item)
-    account.feedback_url = result.page_url
-    account.last_actual_account_name = result.actual_account_name or account.last_actual_account_name
-    account.last_session_verified_at = result.fetched_at
-    if result.ok:
-        account.session_status = SESSION_STATUS_VALID
-        account.last_session_error = ""
-    return result.actual_account_name or account.name
+    return apply_fetch_result_service(account, result)
 
 
 def apply_batch_fetch_results(accounts: list[AccountConfig], results: list[FetchResult]) -> str:
-    latest_actual_account_name = ""
-    result_map = {result.account_name: result for result in results}
-    for account in accounts:
-        result = result_map.get(account.name)
-        if result is None:
-            continue
-        account.last_fetch_at = result.fetched_at
-        account.last_deadline = result.deadline_text
-        account.last_status = fetch_status_from_result(result.ok, result.note)
-        actual_note = f"当前实际账号：{result.actual_account_name}" if result.actual_account_name else ""
-        account.last_note = "；".join(item for item in [result.note, actual_note] if item)
-        if result.page_url:
-            account.feedback_url = result.page_url
-        if result.actual_account_name:
-            account.last_actual_account_name = result.actual_account_name
-        account.last_session_verified_at = result.fetched_at
-        if result.ok:
-            account.session_status = SESSION_STATUS_VALID
-            account.last_session_error = ""
-        if result.actual_account_name:
-            latest_actual_account_name = result.actual_account_name
-    return latest_actual_account_name
+    return apply_batch_fetch_results_service(accounts, results)
 
 
 def is_no_business_page_note(note: str) -> bool:

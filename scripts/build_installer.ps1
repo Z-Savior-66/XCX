@@ -100,6 +100,7 @@ $installerExeName = "$appName.exe"
 $outputBaseFilename = if ($IncludeOfflineChromium) { "$appName-离线版" } else { "$appName-标准版" }
 $appAssetsPath = Join-Path $projectRoot "assets"
 $appIconPath = Join-Path $appAssetsPath "app_icon.ico"
+$transactionComplaintRulesPath = Join-Path $projectRoot "desktop_py\core\transaction_complaint_rules.json"
 $innoCompiler = Resolve-InnoCompilerPath -ProjectRoot $projectRoot
 if ($DryRun) {
     Write-Host ""
@@ -202,6 +203,10 @@ try {
         if (Test-Path $source) {
             Copy-Item -LiteralPath $source -Destination $installerSourceDir -Force
         }
+    }
+
+    if (Test-Path $transactionComplaintRulesPath) {
+        Copy-Item -LiteralPath $transactionComplaintRulesPath -Destination (Join-Path $installerSourceDir "data") -Force
     }
 
     if ($IncludeOfflineChromium) {

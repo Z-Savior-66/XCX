@@ -21,7 +21,12 @@ def select_imported_accounts(window: Any, *, selection_flag: Any) -> None:
 
 
 def save_current_settings(
-    window: Any, *, app_settings_cls: Any, validate_shared_browser_profile_dir_fn: Any, save_settings_fn: Any
+    window: Any,
+    *,
+    app_settings_cls: Any,
+    validate_shared_browser_profile_dir_fn: Any,
+    save_settings_fn: Any,
+    save_schedule_state_fn: Any,
 ) -> None:
     try:
         browser_profile_dir = validate_shared_browser_profile_dir_fn(window.profile_dir_edit.text().strip())
@@ -34,14 +39,11 @@ def save_current_settings(
             auto_fetch_push_enabled=window.auto_fetch_push_switch.isChecked()
             if window.auto_fetch_push_switch is not None
             else False,
+            startup_enabled=window.settings.startup_enabled,
             diagnostic_retention_days=window.settings.diagnostic_retention_days,
-            next_auto_renew_at=window.settings.next_auto_renew_at,
-            next_auto_fetch_push_at=window.settings.next_auto_fetch_push_at,
-            auto_renew_schedule_reason=window.settings.auto_renew_schedule_reason,
-            auto_fetch_push_schedule_reason=window.settings.auto_fetch_push_schedule_reason,
-            schedule_reason=window.settings.schedule_reason,
         )
         save_settings_fn(window.settings)
+        save_schedule_state_fn(window.schedule_state)
     except ValueError as exc:
         window._show_warning("参数错误", str(exc))
         return

@@ -6,7 +6,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from desktop_py.core.fetcher_rules import DEFAULT_TRANSACTION_COMPLAINT_RULES, TransactionComplaintRuleSet
+from desktop_py.core.fetcher_rules import (
+    DEFAULT_TRANSACTION_COMPLAINT_RULES,
+    TransactionComplaintRuleSet,
+    load_transaction_complaint_rules,
+)
 from desktop_py.core.fetcher_support import (
     FetchError,
     FetchErrorCode,
@@ -19,7 +23,6 @@ from desktop_py.core.parser import convert_timestamp
 from desktop_py.core.response_capture import extract_response_token
 from desktop_py.core.store import write_account_output_json, write_account_output_text
 
-TARGET_TRANSACTION_COMPLAINT_ACCOUNT_NAMES = frozenset(DEFAULT_TRANSACTION_COMPLAINT_RULES.target_account_names)
 PENDING_TRANSACTION_COMPLAINT_STATUS = DEFAULT_TRANSACTION_COMPLAINT_RULES.pending_status
 TRANSACTION_COMPLAINT_PAGE_SIZE = DEFAULT_TRANSACTION_COMPLAINT_RULES.page_size
 TRANSACTION_COMPLAINT_STATUS_TEXT = {
@@ -31,10 +34,17 @@ CancelCheck = Callable[[], bool]
 LogFn = Callable[[Logger | None, str], None]
 
 
+def _resolve_transaction_complaint_rules(
+    rules: TransactionComplaintRuleSet | None = None,
+) -> TransactionComplaintRuleSet:
+    return rules if rules is not None else load_transaction_complaint_rules()
+
+
 def should_fetch_transaction_complaints(
-    account: AccountConfig, rules: TransactionComplaintRuleSet = DEFAULT_TRANSACTION_COMPLAINT_RULES
+    account: AccountConfig, rules: TransactionComplaintRuleSet | None = None
 ) -> bool:
-    return account.name.strip() in rules.target_account_names
+    resolved_rules = _resolve_transaction_complaint_rules(rules)
+    return account.name.strip() in resolved_rules.target_account_names
 
 
 def _wait_for_timeout(current_page: Any, wait_ms: int, _cancelled: CancelCheck | None = None) -> None:
@@ -50,16 +60,20 @@ def build_transaction_complaint_list_url(
     token: str,
     *,
     page: int,
-    page_size: int = DEFAULT_TRANSACTION_COMPLAINT_RULES.page_size,
-    status: int = DEFAULT_TRANSACTION_COMPLAINT_RULES.pending_status,
+    page_size: int | None = None,
+    status: int | None = None,
+    rules: TransactionComplaintRuleSet | None = None,
 ) -> str:
+    resolved_rules = _resolve_transaction_complaint_rules(rules)
+    resolved_page_size = page_size if page_size is not None else resolved_rules.page_size
+    resolved_status = status if status is not None else resolved_rules.pending_status
     query = urlencode(
         {
             "token": token,
             "lang": "zh_CN",
             "page": page,
-            "pageSize": page_size,
-            "status": status,
+            "pageSize": resolved_page_size,
+            "status": resolved_status,
             "sortType": 2,
             "type": "",
             "phoneNumber": "",
@@ -147,8 +161,9 @@ def open_transaction_complaint_page(
 
 
 def normalize_transaction_complaint_item(
-    item: dict[str, Any], rules: TransactionComplaintRuleSet = DEFAULT_TRANSACTION_COMPLAINT_RULES
+    item: dict[str, Any], rules: TransactionComplaintRuleSet | None = None
 ) -> dict[str, Any]:
+    resolved_rules = _resolve_transaction_complaint_rules(rules)
     raw_status = item.get("status", 0)
     try:
         status = int(raw_status)
@@ -157,7 +172,9 @@ def normalize_transaction_complaint_item(
     return {
         "complaint_order_id": str(item.get("complaintOrderId", "") or "").strip(),
         "status": status,
-        "status_text": rules.pending_status_text if status == rules.pending_status else str(raw_status).strip(),
+        "status_text": resolved_rules.pending_status_text
+        if status == resolved_rules.pending_status
+        else str(raw_status).strip(),
         "type": item.get("type", ""),
         "order_id": str(item.get("orderId", "") or "").strip(),
         "out_trade_no": str(item.get("outTradeNo", "") or "").strip(),
@@ -175,11 +192,10 @@ def fetch_pending_transaction_complaint_items(
     token: str,
     *,
     request_json_fn: Callable[[Any, str], dict[str, Any]] = request_transaction_complaint_json,
-    rules: TransactionComplaintRuleSet = DEFAULT_TRANSACTION_COMPLAINT_RULES,
+    rules: TransactionComplaintRuleSet | None = None,
 ) -> list[dict[str, Any]]:
-    first_url = build_transaction_complaint_list_url(
-        token, page=1, page_size=rules.page_size, status=rules.pending_status
-    )
+    resolved_rules = _resolve_transaction_complaint_rules(rules)
+    first_url = build_transaction_complaint_list_url(token, page=1, rules=resolved_rules)
     first_payload = request_json_fn(page, first_url)
     if int(first_payload.get("ret", 0) or 0) != 0:
         raise FetchError(
@@ -198,14 +214,12 @@ def fetch_pending_transaction_complaint_items(
     total = int(first_payload.get("countAll", 0) or 0)
     raw_items = first_payload.get("complaintOrderList", [])
     items = [item for item in raw_items if isinstance(item, dict)]
-    total_pages = max(1, ceil(total / rules.page_size))
+    total_pages = max(1, ceil(total / resolved_rules.page_size))
 
     for page_index in range(2, total_pages + 1):
         payload = request_json_fn(
             page,
-            build_transaction_complaint_list_url(
-                token, page=page_index, page_size=rules.page_size, status=rules.pending_status
-            ),
+            build_transaction_complaint_list_url(token, page=page_index, rules=resolved_rules),
         )
         if int(payload.get("ret", 0) or 0) != 0:
             raise FetchError(
@@ -224,9 +238,9 @@ def fetch_pending_transaction_complaint_items(
         items.extend(item for item in page_items if isinstance(item, dict))
 
     return [
-        normalize_transaction_complaint_item(item, rules=rules)
+        normalize_transaction_complaint_item(item, rules=resolved_rules)
         for item in items
-        if int(item.get("status", 0) or 0) == rules.pending_status
+        if int(item.get("status", 0) or 0) == resolved_rules.pending_status
     ]
 
 
@@ -249,8 +263,10 @@ def fetch_transaction_complaints(
     safe_page_content_fn: Callable[..., str],
     is_cancelled: CancelCheck | None = None,
     request_json_fn: Callable[[Any, str], dict[str, Any]] = request_transaction_complaint_json,
+    rules: TransactionComplaintRuleSet | None = None,
 ) -> dict[str, Any]:
-    if not should_fetch_transaction_complaints(account):
+    resolved_rules = _resolve_transaction_complaint_rules(rules)
+    if not should_fetch_transaction_complaints(account, resolved_rules):
         return {
             "ok": True,
             "enabled": False,
@@ -270,7 +286,9 @@ def fetch_transaction_complaints(
             is_cancelled=is_cancelled,
         )
         token = extract_response_token(page_url)
-        complaints = fetch_pending_transaction_complaint_items(page, token, request_json_fn=request_json_fn)
+        complaints = fetch_pending_transaction_complaint_items(
+            page, token, request_json_fn=request_json_fn, rules=resolved_rules
+        )
         write_account_output_json(account.name, "transaction_complaints.json", complaints)
         summary = build_transaction_complaint_summary(complaints)
         return {"ok": True, "enabled": True, "complaints": complaints, "summary": summary, "page_url": page_url}

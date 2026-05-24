@@ -52,6 +52,13 @@ class AppSettings:
     auto_fetch_push_enabled: bool = False
     startup_enabled: bool = False
     diagnostic_retention_days: int = 14
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ScheduleState:
     next_auto_renew_at: str = ""
     next_auto_fetch_push_at: str = ""
     auto_renew_schedule_reason: str = ""

@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from desktop_py.core.models import CONFIG_SCHEMA_VERSION, AccountConfig, AppSettings
+from desktop_py.core.models import CONFIG_SCHEMA_VERSION, AccountConfig, AppSettings, ScheduleState
 from desktop_py.core.store import (
     SHARED_BROWSER_PROFILE_DIR_NAME,
     _write_text_atomic,
@@ -16,10 +16,12 @@ from desktop_py.core.store import (
     cleanup_account_diagnostics,
     diagnostic_index_file,
     load_accounts,
+    load_schedule_state,
     load_settings,
     prepare_shared_browser_profile_dir,
     runtime_root,
     save_accounts,
+    save_schedule_state,
     save_settings,
     validate_shared_browser_profile_dir,
     write_account_output_json,
@@ -52,12 +54,20 @@ class StoreTestCase(unittest.TestCase):
 
         self.assertFalse(settings.auto_fetch_push_enabled)
         self.assertEqual(settings.diagnostic_retention_days, 14)
-        self.assertEqual(settings.next_auto_renew_at, "")
-        self.assertEqual(settings.next_auto_fetch_push_at, "")
-        self.assertEqual(settings.auto_renew_schedule_reason, "")
-        self.assertEqual(settings.auto_fetch_push_schedule_reason, "")
-        self.assertEqual(settings.schedule_reason, "")
         self.assertEqual(settings.schema_version, CONFIG_SCHEMA_VERSION)
+
+    def test_load_schedule_state_defaults_when_missing(self):
+        with TemporaryDirectory() as temp_dir:
+            schedule_state_path = Path(temp_dir) / "schedule_state.json"
+
+            with (
+                patch("desktop_py.core.store.SCHEDULE_STATE_FILE", schedule_state_path),
+                patch("desktop_py.core.store.SETTINGS_FILE", Path(temp_dir) / "settings.json"),
+                patch("desktop_py.core.store.ensure_runtime_dirs"),
+            ):
+                state = load_schedule_state()
+
+        self.assertEqual(state, ScheduleState())
 
     def test_load_settings_supports_utf8_bom(self):
         with TemporaryDirectory() as temp_dir:
@@ -186,10 +196,45 @@ class StoreTestCase(unittest.TestCase):
 
         self.assertIn('"auto_fetch_push_enabled": true', content)
 
-    def test_save_settings_persists_schedule_state(self):
+    def test_load_schedule_state_migrates_legacy_fields_from_settings(self):
         with TemporaryDirectory() as temp_dir:
             settings_path = Path(temp_dir) / "settings.json"
-            settings = AppSettings(
+            settings_path.write_text(
+                json.dumps(
+                    {
+                        "feishu_webhook": "demo",
+                        "next_auto_renew_at": "2026-05-18 21:00:00",
+                        "next_auto_fetch_push_at": "2026-05-19 09:00:00",
+                        "auto_renew_schedule_reason": "失败退避",
+                        "auto_fetch_push_schedule_reason": "每天 09:00 自动执行",
+                        "schedule_reason": "失败退避",
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            schedule_state_path = Path(temp_dir) / "schedule_state.json"
+
+            with (
+                patch("desktop_py.core.store.SETTINGS_FILE", settings_path),
+                patch("desktop_py.core.store.SCHEDULE_STATE_FILE", schedule_state_path),
+                patch("desktop_py.core.store.ensure_runtime_dirs"),
+            ):
+                loaded = load_schedule_state()
+                persisted_state = json.loads(schedule_state_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(loaded.next_auto_renew_at, "2026-05-18 21:00:00")
+        self.assertEqual(loaded.next_auto_fetch_push_at, "2026-05-19 09:00:00")
+        self.assertEqual(loaded.auto_renew_schedule_reason, "失败退避")
+        self.assertEqual(loaded.auto_fetch_push_schedule_reason, "每天 09:00 自动执行")
+        self.assertEqual(loaded.schedule_reason, "失败退避")
+        self.assertEqual(persisted_state["schedule_reason"], "失败退避")
+
+    def test_save_schedule_state_persists_state(self):
+        with TemporaryDirectory() as temp_dir:
+            schedule_state_path = Path(temp_dir) / "schedule_state.json"
+            state = ScheduleState(
                 next_auto_renew_at="2026-05-18 21:00:00",
                 next_auto_fetch_push_at="2026-05-19 09:00:00",
                 auto_renew_schedule_reason="失败退避",
@@ -198,11 +243,11 @@ class StoreTestCase(unittest.TestCase):
             )
 
             with (
-                patch("desktop_py.core.store.SETTINGS_FILE", settings_path),
+                patch("desktop_py.core.store.SCHEDULE_STATE_FILE", schedule_state_path),
                 patch("desktop_py.core.store.ensure_runtime_dirs"),
             ):
-                save_settings(settings)
-                loaded = load_settings()
+                save_schedule_state(state)
+                loaded = load_schedule_state()
 
         self.assertEqual(loaded.next_auto_renew_at, "2026-05-18 21:00:00")
         self.assertEqual(loaded.next_auto_fetch_push_at, "2026-05-19 09:00:00")
