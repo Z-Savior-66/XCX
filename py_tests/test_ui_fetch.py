@@ -80,6 +80,29 @@ class UiFetchTestCase(UiTestBase):
         self.assertEqual(result, [])
         mock_batch.assert_called_once()
 
+    def test_disabled_imported_account_cannot_fetch_selected(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window.accounts = [
+            AccountConfig(name="主账号", state_path="storage/shared.json", is_entry_account=True, enabled=True),
+            AccountConfig(name="导入账号", state_path="storage/shared.json", is_entry_account=False, enabled=False),
+        ]
+        window.refresh_table()
+        window.table.selectRow(1)
+
+        self.assertFalse(window.fetch_selected_button.isEnabled())
+        self.assertTrue(window.edit_button.isEnabled())
+        self.assertTrue(window.delete_button.isEnabled())
+        with (
+            patch.object(window, "_show_info") as mock_information,
+            patch.object(window, "_run_thread") as mock_run_thread,
+        ):
+            window.fetch_selected()
+
+        mock_information.assert_called_once()
+        self.assertIn("账号已停用", mock_information.call_args.args[1])
+        mock_run_thread.assert_not_called()
+
     def test_stop_fetch_button_enabled_when_background_task_exists(self):
         window = MainWindow()
         self.addCleanup(window.close)
@@ -164,6 +187,11 @@ class UiFetchTestCase(UiTestBase):
 
         mock_run_thread.assert_called_once()
         self.assertEqual(mock_run_thread.call_args.kwargs["on_progress"], window._mark_fetch_progress)
+        job = mock_run_thread.call_args.args[0]
+        with patch("desktop_py.ui.main_window.fetch_accounts_batch", return_value=[]) as mock_batch:
+            job(lambda _message: None, lambda _payload: None)
+        fetched_accounts = mock_batch.call_args.args[0]
+        self.assertEqual([account.name for account in fetched_accounts], ["导入账号A"])
 
     def test_fetch_all_requires_imported_accounts(self):
         window = MainWindow()

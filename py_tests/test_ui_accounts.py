@@ -8,6 +8,8 @@ from py_tests.ui_test_support import (
     MainWindow,
     Path,
     QKeyEvent,
+    QLabel,
+    QPushButton,
     Qt,
     QTimer,
     TemporaryDirectory,
@@ -24,6 +26,44 @@ class UiAccountTestCase(UiTestBase):
         self.assertEqual(account.name, "演示账号")
         self.assertEqual(account.state_path, "storage/demo.json")
         self.assertTrue(account.is_entry_account)
+
+    def test_account_dialog_hides_state_path_and_note(self):
+        dialog = AccountDialog(AccountConfig(name="演示账号", state_path="storage/demo.json"))
+        self.addCleanup(dialog.close)
+
+        label_texts = [label.text() for label in dialog.findChildren(QLabel)]
+
+        self.assertNotIn("登录态文件", label_texts)
+        self.assertNotIn("填写建议", label_texts)
+        self.assertIsNone(dialog.findChild(QFrame, "dialogNote"))
+        self.assertEqual(dialog.build_account().state_path, "storage/demo.json")
+
+    def test_account_dialog_orders_cancel_before_save(self):
+        dialog = AccountDialog(AccountConfig(name="演示账号", state_path="storage/demo.json"))
+        self.addCleanup(dialog.close)
+
+        button_texts = [button.text() for button in dialog.findChildren(QPushButton)]
+
+        self.assertEqual(button_texts, ["取消", "保存"])
+
+    def test_account_dialog_enabled_only_locks_non_enabled_fields(self):
+        dialog = AccountDialog(
+            AccountConfig(
+                name="导入账号",
+                state_path="storage/shared.json",
+                is_entry_account=False,
+                home_url="https://mp.weixin.qq.com/",
+                enabled=False,
+            ),
+            enabled_only=True,
+        )
+        self.addCleanup(dialog.close)
+
+        self.assertTrue(dialog.name_edit.isReadOnly())
+        self.assertTrue(dialog.home_url_edit.isReadOnly())
+        self.assertTrue(dialog.enabled_check.isEnabled())
+        self.assertFalse(dialog.enabled_check.isChecked())
+        self.assertIn("仅支持调整启用状态", dialog.findChildren(QLabel)[1].text())
 
     def test_global_settings_are_opened_from_settings_button(self):
         window = MainWindow()
@@ -100,7 +140,71 @@ class UiAccountTestCase(UiTestBase):
         self.assertFalse(window.stop_fetch_button.isEnabled())
         self.assertTrue(window.delete_button.isEnabled())
 
-    def test_imported_account_cannot_edit(self):
+    def test_imported_account_can_edit_enabled_only(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window.accounts = [
+            AccountConfig(name="主账号", state_path="storage/shared.json", is_entry_account=True),
+            AccountConfig(
+                name="导入账号",
+                state_path="storage/shared.json",
+                is_entry_account=False,
+                feedback_url="https://mp.weixin.qq.com/feedback",
+                home_url="https://mp.weixin.qq.com/custom",
+                enabled=True,
+                last_login_at="2026-05-01 10:00:00",
+                last_fetch_at="2026-05-02 10:00:00",
+                last_deadline="2026-05-29 11:20:47",
+                last_status="成功",
+                last_note="已有记录",
+                session_status="valid",
+                session_source="profile",
+                last_session_verified_at="2026-05-03 10:00:00",
+                last_session_renewed_at="2026-05-04 10:00:00",
+                last_session_error="",
+                last_actual_account_name="导入账号实际名称",
+                session_renewal_failures=2,
+            ),
+        ]
+        window.refresh_table()
+        window.table.selectRow(1)
+        before = window.accounts[1].to_dict()
+
+        class FakeDialog:
+            DialogCode = AccountDialog.DialogCode
+            seen_enabled_only = None
+
+            def __init__(self, account=None, parent=None, *, enabled_only=False):
+                self._account = account
+                FakeDialog.seen_enabled_only = enabled_only
+
+            def exec(self):
+                return self.DialogCode.Accepted
+
+            def build_account(self):
+                return AccountConfig(
+                    name="被错误修改的账号名",
+                    state_path="storage/changed.json",
+                    is_entry_account=True,
+                    feedback_url="https://mp.weixin.qq.com/changed",
+                    home_url="https://mp.weixin.qq.com/changed",
+                    enabled=False,
+                )
+
+        with (
+            patch("desktop_py.ui.main_window.AccountDialog", FakeDialog),
+            patch("desktop_py.ui.main_window.save_accounts") as mock_save_accounts,
+        ):
+            window.edit_account()
+
+        after = window.accounts[1].to_dict()
+        self.assertTrue(before.pop("enabled"))
+        self.assertFalse(after.pop("enabled"))
+        self.assertEqual(after, before)
+        self.assertTrue(FakeDialog.seen_enabled_only)
+        mock_save_accounts.assert_called_once()
+
+    def test_imported_account_single_selection_enables_edit_button(self):
         window = MainWindow()
         self.addCleanup(window.close)
         window.accounts = [
@@ -110,11 +214,11 @@ class UiAccountTestCase(UiTestBase):
         window.refresh_table()
         window.table.selectRow(1)
 
-        with patch.object(window, "_show_info") as mock_information:
-            window.edit_account()
-
-        mock_information.assert_called_once()
-        self.assertIn("导入账号不允许编辑", mock_information.call_args.args[1])
+        self.assertTrue(window.edit_button.isEnabled())
+        self.assertFalse(window.login_button.isEnabled())
+        self.assertFalse(window.renew_button.isEnabled())
+        self.assertFalse(window.import_button.isEnabled())
+        self.assertFalse(window.validate_button.isEnabled())
 
     def test_edit_account_state_path_switches_to_new_group_feedback_url(self):
         window = MainWindow()
@@ -140,7 +244,7 @@ class UiAccountTestCase(UiTestBase):
         class FakeDialog:
             DialogCode = AccountDialog.DialogCode
 
-            def __init__(self, account=None, parent=None):
+            def __init__(self, account=None, parent=None, *, enabled_only=False):
                 self._account = account
 
             def exec(self):
@@ -222,6 +326,26 @@ class UiAccountTestCase(UiTestBase):
 
         mock_information.assert_called_once()
         self.assertIn("只有主账号可以导入账号列表", mock_information.call_args.args[1])
+        mock_run_thread.assert_not_called()
+
+    def test_disabled_entry_account_cannot_import_accounts(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window.accounts = [
+            AccountConfig(name="主账号", state_path="storage/shared.json", is_entry_account=True, enabled=False),
+            AccountConfig(name="导入账号", state_path="storage/shared.json", is_entry_account=False),
+        ]
+        window.refresh_table()
+        window.table.selectRow(0)
+
+        with (
+            patch.object(window, "_show_info") as mock_information,
+            patch.object(window, "_run_thread") as mock_run_thread,
+        ):
+            window.import_accounts()
+
+        mock_information.assert_called_once()
+        self.assertIn("账号已停用", mock_information.call_args.args[1])
         mock_run_thread.assert_not_called()
 
     def test_import_accounts_reuses_shared_feedback_url_from_fetched_imported_account(self):

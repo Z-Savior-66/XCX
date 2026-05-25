@@ -336,7 +336,7 @@ class FetcherPageStrategyTestCase(FetcherTestBase):
         }
         non_empty_capture = {
             "response_type": "list",
-            "body": {"data": {"list": [{"deadline_time": "2026-04-25 00:00:00"}], "total_cnt": 1}},
+            "body": {"data": {"list": [{"status_text": "待处理", "deadline_time": "2026-04-25 00:00:00"}], "total_cnt": 1}},
         }
 
         self.assertEqual(list_capture_result([empty_capture]), "empty")
@@ -430,7 +430,9 @@ class FetcherPageStrategyTestCase(FetcherTestBase):
                     "body": {
                         "data": {
                             "total_count": 1,
-                            "user_refund_check_list": [{"ctrl_info": {"deadline_time": "1777046400"}}],
+                            "user_refund_check_list": [
+                                {"status_text": "待处理", "ctrl_info": {"deadline_time": "1777046400"}}
+                            ],
                         }
                     },
                 }
@@ -794,13 +796,19 @@ class FetcherPageStrategyTestCase(FetcherTestBase):
 
         self.assertEqual([item["url"] for item in filtered], [captures[4]["url"], captures[5]["url"]])
 
-    def test_extract_deadline_from_captures_prefers_latest_detail_over_list(self):
+    def test_extract_deadline_from_captures_prefers_nearest_deadline_across_detail_and_list(self):
         from desktop_py.core.fetcher_page_strategy import extract_deadline_from_captures
 
         captures = [
             {
                 "response_type": "list",
-                "body": {"data": {"user_refund_check_list": [{"ctrl_info": {"deadline_time": "1777046400"}}]}},
+                "body": {
+                    "data": {
+                        "user_refund_check_list": [
+                            {"status_text": "待处理", "ctrl_info": {"deadline_time": "1777046400"}}
+                        ]
+                    }
+                },
             },
             {
                 "response_type": "detail",
@@ -810,7 +818,243 @@ class FetcherPageStrategyTestCase(FetcherTestBase):
             },
         ]
 
-        self.assertEqual(extract_deadline_from_captures(captures), "2026-04-27 08:37:32")
+        self.assertEqual(extract_deadline_from_captures(captures), "2026-04-25 00:00:00")
+
+    def test_extract_deadline_from_captures_includes_top_level_appeal_pending_item(self):
+        from desktop_py.core.fetcher_page_strategy import extract_deadline_from_captures
+
+        captures = [
+            {
+                "response_type": "list",
+                "body": {
+                    "data": {
+                        "user_refund_check_list": [
+                            {
+                                "status_text": "申诉待处理",
+                                "appeal_deadline_time": "2026-05-26 17:32:36",
+                            },
+                            {
+                                "status_text": "待处理",
+                                "ctrl_info": {"appeal_deadline_time": "2026-05-29 11:20:47"},
+                            },
+                        ]
+                    }
+                },
+            },
+            {
+                "response_type": "detail",
+                "body": {"data": {"appeal_deadline_time": "2026-05-29 11:20:47"}},
+            },
+        ]
+
+        self.assertEqual(extract_deadline_from_captures(captures), "2026-05-26 17:32:36")
+
+    def test_build_detail_result_uses_list_deadline_without_clicking_detail(self):
+        from desktop_py.core.fetcher_page_strategy import build_detail_result
+
+        captures = [
+            {
+                "response_type": "list",
+                "token": "current",
+                "url": "https://mp.weixin.qq.com/api/getUserRefundCheckList?token=current",
+                "body": {
+                    "data": {
+                        "user_refund_check_list": [
+                            {"status_text": "待处理", "ctrl_info": {"appeal_deadline_time": "2026-05-26 17:32:36"}},
+                        ]
+                    }
+                },
+            }
+        ]
+
+        class ActionLocator:
+            def __init__(self):
+                self.last = self
+
+            def count(self):
+                return 1
+
+            def click(self, timeout=None):
+                raise AssertionError("列表已提供截止时间时不应点击详情")
+
+        class FrameLocator:
+            def get_by_text(self, text, exact=False):
+                return ActionLocator()
+
+        class FakeContext:
+            def storage_state(self, path=None, indexed_db=False):
+                return None
+
+        def fake_confirm_detail_deadline(**kwargs):
+            raise AssertionError("列表已提供截止时间时不应确认详情")
+
+        with TemporaryDirectory() as temp_dir:
+            result = build_detail_result(
+                page=object(),
+                context=FakeContext(),
+                account=AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False),
+                output_dir=Path(temp_dir),
+                frame_locator=FrameLocator(),
+                captures=captures,
+                feedback_url="https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?token=current",
+                profile_dir="",
+                logger=None,
+                safe_page_content_fn=lambda _page: "<html></html>",
+                extract_current_account_name_fn=lambda _page: "账号A",
+                confirm_detail_deadline_fn=fake_confirm_detail_deadline,
+            )
+
+        self.assertEqual(result.deadline_text, "2026-05-26 17:32:36")
+        self.assertEqual(result.deadline_source, "list-capture")
+        self.assertEqual(result.note, "已完成列表页抓取。")
+
+    def test_build_detail_result_keeps_nearest_deadline_from_multiple_pending_refunds(self):
+        from desktop_py.core.fetcher_page_strategy import build_detail_result
+
+        captures = [
+            {
+                "response_type": "list",
+                "token": "current",
+                "url": "https://mp.weixin.qq.com/api/getUserRefundCheckList?token=current",
+                "body": {
+                    "data": {
+                        "user_refund_check_list": [
+                            {"status_text": "待处理", "ctrl_info": {"appeal_deadline_time": "2026-05-26 17:32:36"}},
+                            {"status_text": "待处理", "ctrl_info": {"appeal_deadline_time": "2026-05-29 11:20:47"}},
+                        ]
+                    }
+                },
+            }
+        ]
+
+        class ActionLocator:
+            def __init__(self):
+                self.last = self
+
+            def count(self):
+                return 1
+
+            def click(self, timeout=None):
+                captures.append(
+                    {
+                        "response_type": "detail",
+                        "token": "current",
+                        "url": "https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?token=current",
+                        "body": {"data": {"appeal_deadline_time": "2026-05-29 11:20:47"}},
+                    }
+                )
+
+        class FrameLocator:
+            def get_by_text(self, text, exact=False):
+                return ActionLocator()
+
+        class FakeContext:
+            def storage_state(self, path=None, indexed_db=False):
+                return None
+
+        def fake_confirm_detail_deadline(**kwargs):
+            return _fallback_from_responses(kwargs["captures"]), "detail text", "<div>detail</div>"
+
+        with TemporaryDirectory() as temp_dir:
+            result = build_detail_result(
+                page=object(),
+                context=FakeContext(),
+                account=AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False),
+                output_dir=Path(temp_dir),
+                frame_locator=FrameLocator(),
+                captures=captures,
+                feedback_url="https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?token=current",
+                profile_dir="",
+                logger=None,
+                safe_page_content_fn=lambda _page: "<html></html>",
+                extract_current_account_name_fn=lambda _page: "账号A",
+                confirm_detail_deadline_fn=fake_confirm_detail_deadline,
+            )
+
+        self.assertEqual(result.deadline_text, "2026-05-26 17:32:36")
+
+    def test_build_detail_result_keeps_nearest_deadline_from_paginated_refund_list(self):
+        from desktop_py.core.fetcher_page_strategy import build_detail_result, fetch_paginated_refund_list_captures
+
+        captures = [
+            {
+                "response_type": "list",
+                "token": "current",
+                "url": "https://mp.weixin.qq.com/api/getUserRefundCheckList?token=current&cur_page=0&per_page=1",
+                "body": {
+                    "data": {
+                        "total_count": 2,
+                        "user_refund_check_list": [
+                            {"status_text": "待处理", "ctrl_info": {"appeal_deadline_time": "2026-05-29 11:20:47"}},
+                        ],
+                    }
+                },
+            }
+        ]
+
+        def fake_request(_page, _request_url: str):
+            return {
+                "data": {
+                    "total_count": 2,
+                    "user_refund_check_list": [
+                        {"status_text": "待处理", "ctrl_info": {"appeal_deadline_time": "2026-05-26 17:32:36"}},
+                    ],
+                }
+            }
+
+        captures = fetch_paginated_refund_list_captures(
+            page=object(),
+            captures=captures,
+            logger=None,
+            log_fn=lambda _logger, _message: None,
+            request_refund_list_page_fn=fake_request,
+        )
+
+        class ActionLocator:
+            def __init__(self):
+                self.last = self
+
+            def count(self):
+                return 1
+
+            def click(self, timeout=None):
+                captures.append(
+                    {
+                        "response_type": "detail",
+                        "token": "current",
+                        "url": "https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?token=current",
+                        "body": {"data": {"appeal_deadline_time": "2026-05-29 11:20:47"}},
+                    }
+                )
+
+        class FrameLocator:
+            def get_by_text(self, text, exact=False):
+                return ActionLocator()
+
+        class FakeContext:
+            def storage_state(self, path=None, indexed_db=False):
+                return None
+
+        def fake_confirm_detail_deadline(**kwargs):
+            return _fallback_from_responses(kwargs["captures"]), "detail text", "<div>detail</div>"
+
+        with TemporaryDirectory() as temp_dir:
+            result = build_detail_result(
+                page=object(),
+                context=FakeContext(),
+                account=AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False),
+                output_dir=Path(temp_dir),
+                frame_locator=FrameLocator(),
+                captures=captures,
+                feedback_url="https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?token=current",
+                profile_dir="",
+                logger=None,
+                safe_page_content_fn=lambda _page: "<html></html>",
+                extract_current_account_name_fn=lambda _page: "账号A",
+                confirm_detail_deadline_fn=fake_confirm_detail_deadline,
+            )
+
+        self.assertEqual(result.deadline_text, "2026-05-26 17:32:36")
 
     def test_captures_indicate_non_empty_refunds_does_not_treat_empty_count_as_pending(self):
         from desktop_py.core.fetcher_page_strategy import captures_indicate_non_empty_refunds
@@ -1199,13 +1443,21 @@ class FetcherPageStrategyTestCase(FetcherTestBase):
             {
                 "response_type": "list",
                 "body": {
-                    "data": {"user_refund_check_list": [{"ctrl_info": {"appeal_deadline_time": "2026-05-20 10:00:00"}}]}
+                    "data": {
+                        "user_refund_check_list": [
+                            {"status_text": "待处理", "ctrl_info": {"appeal_deadline_time": "2026-05-20 10:00:00"}}
+                        ]
+                    }
                 },
             },
             {
                 "response_type": "list",
                 "body": {
-                    "data": {"user_refund_check_list": [{"ctrl_info": {"appeal_deadline_time": "2026-05-18 10:00:00"}}]}
+                    "data": {
+                        "user_refund_check_list": [
+                            {"status_text": "待处理", "ctrl_info": {"appeal_deadline_time": "2026-05-18 10:00:00"}}
+                        ]
+                    }
                 },
             },
         ]

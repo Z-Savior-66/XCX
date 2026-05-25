@@ -56,18 +56,19 @@ def update_action_buttons(window: Any) -> None:
     current_indexes = window.selected_indexes()
     single_selected = len(current_indexes) == 1
     account = window.accounts[current_indexes[0]] if single_selected else None
+    account_enabled = bool(account and account.enabled)
     if window.login_button is not None:
-        window.login_button.setEnabled(bool(account and account.is_entry_account))
+        window.login_button.setEnabled(bool(account_enabled and account.is_entry_account))
     if window.renew_button is not None:
-        window.renew_button.setEnabled(bool(account and account.is_entry_account))
+        window.renew_button.setEnabled(bool(account_enabled and account.is_entry_account))
     if window.edit_button is not None:
-        window.edit_button.setEnabled(bool(account and account.is_entry_account))
+        window.edit_button.setEnabled(bool(account))
     if window.import_button is not None:
-        window.import_button.setEnabled(bool(account and account.is_entry_account))
+        window.import_button.setEnabled(bool(account_enabled and account.is_entry_account))
     if window.validate_button is not None:
-        window.validate_button.setEnabled(bool(account and account.is_entry_account))
+        window.validate_button.setEnabled(bool(account_enabled and account.is_entry_account))
     if window.fetch_selected_button is not None:
-        window.fetch_selected_button.setEnabled(bool(account and (not account.is_entry_account)))
+        window.fetch_selected_button.setEnabled(bool(account_enabled and (not account.is_entry_account)))
     if window.delete_button is not None:
         window.delete_button.setEnabled(bool(current_indexes))
     if window.stop_fetch_button is not None:

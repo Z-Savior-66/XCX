@@ -932,9 +932,9 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
         self.assertTrue(result.ok)
         self.assertIn(
             "账号 账号A 抓取成功：\n"
-            "1.通知中心无目标未读消息。\n"
-            "2.未成年退款申请截止时间内无待处理。\n"
-            "3.IOS退款问询当前无待处理申请。",
+            "1.未成年退款申请截止时间内无待处理。\n"
+            "2.IOS退款问询当前无待处理申请。\n"
+            "3.通知中心无目标未读消息。",
             logs,
         )
 
@@ -1009,9 +1009,9 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
         self.assertEqual(result.page_url, "https://example.com/ios-refund")
         self.assertIn(
             "账号 账号A 抓取成功：\n"
-            "1.通知中心未读消息 1 条：小程序微信认证年审通知。\n"
-            "2.未成年退款申请处理截止时间：2026-05-18 10:00:00。\n"
-            "3.IOS退款问询处理截止时间：2026-05-17 09:00:00。",
+            "1.未成年退款申请处理截止时间：2026-05-18 10:00:00。\n"
+            "2.IOS退款问询处理截止时间：2026-05-17 09:00:00。\n"
+            "3.通知中心未读消息 1 条：小程序微信认证年审通知。",
             logs,
         )
 
@@ -1084,9 +1084,9 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
         self.assertTrue(result.ok)
         self.assertIn(
             "账号 账号A 抓取成功：\n"
-            "1.通知中心抓取失败：未找到通知中心入口。\n"
-            "2.未成年退款申请截止时间内无待处理。\n"
-            "3.IOS退款问询当前无待处理申请。",
+            "1.未成年退款申请截止时间内无待处理。\n"
+            "2.IOS退款问询当前无待处理申请。\n"
+            "3.通知中心抓取失败：未找到通知中心入口。",
             logs,
         )
 
@@ -1159,6 +1159,7 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
 
         page = DemoPage()
         account = AccountConfig(name="经典诗词摘抄", state_path="storage/a.json", is_entry_account=False)
+        logs: list[str] = []
         written_results: list[dict] = []
 
         with patch("desktop_py.core.fetcher_diagnostics.write_fetch_result") as write_result:
@@ -1167,7 +1168,7 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
                 page,
                 object(),
                 account,
-                None,
+                logs.append,
                 "",
                 None,
                 account_output_dir_fn=lambda _account_name: Path("output") / "经典诗词摘抄",
@@ -1178,7 +1179,7 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
                 extract_current_account_name_fn=lambda _page: "经典诗词摘抄",
                 should_switch_for_account_fn=lambda _account, _current_account_name: False,
                 switch_to_account_fn=lambda *_args, **_kwargs: None,
-                log_fn=lambda *_args, **_kwargs: None,
+                log_fn=lambda logger, message: logger(message) if logger is not None else None,
                 open_feedback_page_fn=lambda _page, **_kwargs: (_ for _ in ()).throw(
                     AssertionError("目标账号不应打开退款反馈页")
                 ),
@@ -1189,6 +1190,12 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
                 ),
                 business_iframe_selector_fn=lambda _page: "#js_iframe",
                 safe_page_content_fn=lambda _page: "<html></html>",
+                fetch_notifications_fn=lambda *_args, **_kwargs: {
+                    "ok": True,
+                    "notifications": [{"title": "你的账号收到一条侵权投诉"}],
+                    "summary": "通知中心未读消息 1 条：你的账号收到一条侵权投诉",
+                    "page_url": "https://example.com/notice",
+                },
                 fetch_transaction_complaints_fn=lambda *_args, **_kwargs: {
                     "ok": True,
                     "enabled": True,
@@ -1219,6 +1226,13 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
         self.assertTrue(result.ok)
         self.assertEqual(result.page_url, "https://example.com/complaint")
         self.assertIn("交易投诉待处理 1 条：48383455", result.note)
+        self.assertLess(result.note.index("交易投诉待处理"), result.note.index("通知中心未读消息"))
+        self.assertIn(
+            "账号 经典诗词摘抄 抓取成功：\n"
+            "1.交易投诉待处理 1 条，投诉编号：48383455。\n"
+            "2.通知中心未读消息 1 条：你的账号收到一条侵权投诉。",
+            logs,
+        )
         self.assertEqual(written_results[-1]["transaction_complaints"], [{"complaint_order_id": "48383455"}])
 
     def test_fetch_account_in_page_recovers_login_timeout_screen_before_opening_feedback(self):

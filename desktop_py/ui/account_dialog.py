@@ -4,11 +4,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
-    QDialogButtonBox,
     QFormLayout,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -17,9 +18,16 @@ from desktop_py.core.models import AccountConfig
 
 
 class AccountDialog(QDialog):
-    def __init__(self, account: AccountConfig | None = None, parent: QWidget | None = None):
+    def __init__(
+        self,
+        account: AccountConfig | None = None,
+        parent: QWidget | None = None,
+        *,
+        enabled_only: bool = False,
+    ):
         super().__init__(parent)
         self._account = account
+        self._enabled_only = enabled_only
         self.setWindowTitle("账号配置")
         self.setModal(True)
         self.resize(520, 320)
@@ -29,10 +37,12 @@ class AccountDialog(QDialog):
         self.state_path_edit = QLineEdit(account.state_path if account else "")
         self.home_url_edit = QLineEdit(account.home_url if account else "https://mp.weixin.qq.com/")
         self.name_edit.setPlaceholderText("例如：主账号、测试账号")
-        self.state_path_edit.setPlaceholderText("留空时自动生成共享登录态路径")
         self.home_url_edit.setPlaceholderText("默认使用微信公众平台首页")
         self.enabled_check = QCheckBox("启用该账号")
         self.enabled_check.setChecked(True if account is None else account.enabled)
+        if enabled_only:
+            self.name_edit.setReadOnly(True)
+            self.home_url_edit.setReadOnly(True)
 
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -40,20 +50,18 @@ class AccountDialog(QDialog):
         form.setHorizontalSpacing(18)
         form.setVerticalSpacing(16)
         form.addRow("账号名称", self.name_edit)
-        form.addRow("登录态文件", self.state_path_edit)
         form.addRow("后台首页", self.home_url_edit)
         form.addRow("", self.enabled_check)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
-        if ok_button:
-            ok_button.setText("保存")
-            ok_button.setProperty("role", "primary")
-        if cancel_button:
-            cancel_button.setText("取消")
+        self.cancel_button = QPushButton("取消")
+        self.save_button = QPushButton("保存")
+        self.save_button.setProperty("role", "primary")
+        self.cancel_button.clicked.connect(self.reject)
+        self.save_button.clicked.connect(self.accept)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        buttons.addWidget(self.cancel_button)
+        buttons.addWidget(self.save_button)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -61,7 +69,12 @@ class AccountDialog(QDialog):
 
         title = QLabel("账号信息")
         title.setObjectName("dialogTitle")
-        subtitle = QLabel("只需维护基础资料，其余抓取状态仍由主窗口自动更新。")
+        subtitle_text = (
+            "导入账号仅支持调整启用状态，其余资料由入口账号同步。"
+            if enabled_only
+            else "只需维护基础资料，其余抓取状态仍由主窗口自动更新。"
+        )
+        subtitle = QLabel(subtitle_text)
         subtitle.setObjectName("dialogSubtitle")
         subtitle.setWordWrap(True)
 
@@ -72,13 +85,10 @@ class AccountDialog(QDialog):
         card_layout.setSpacing(14)
         card_layout.addLayout(form)
 
-        note = self._build_note()
-        card_layout.addWidget(note)
-
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addWidget(card)
-        layout.addWidget(buttons)
+        layout.addLayout(buttons)
 
         self.setStyleSheet(
             """
@@ -138,42 +148,6 @@ class AccountDialog(QDialog):
             }
             """
         )
-
-    def _build_note(self) -> QWidget:
-        note = QFrame()
-        note.setObjectName("dialogNote")
-        layout = QVBoxLayout(note)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(4)
-
-        title = QLabel("填写建议")
-        title.setObjectName("noteTitle")
-        text = QLabel("账号名称用于列表识别；登录态文件可复用共享路径；后台首页通常保持默认即可。")
-        text.setObjectName("noteText")
-        text.setWordWrap(True)
-
-        layout.addWidget(title)
-        layout.addWidget(text)
-        note.setStyleSheet(
-            """
-            QFrame#dialogNote {
-                background: #f5f9ff;
-                border: 1px solid #d9e8ff;
-                border-radius: 14px;
-            }
-            QLabel#noteTitle {
-                color: #1d5fbf;
-                font-size: 13px;
-                font-weight: 700;
-            }
-            QLabel#noteText {
-                color: #5d7187;
-                font-size: 12px;
-                line-height: 1.5;
-            }
-            """
-        )
-        return note
 
     def build_account(self) -> AccountConfig:
         return AccountConfig(

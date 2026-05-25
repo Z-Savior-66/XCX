@@ -148,16 +148,21 @@ class BuildInstallerScriptTestCase(unittest.TestCase):
         self.assertIn("StatusRunProgram=正在完成安装...", content)
         self.assertIn("StatusRestartingApplications=正在重新启动程序...", content)
 
-    def test_installer_prompts_when_app_is_running(self):
+    def test_installer_closes_running_app_automatically(self):
         content = INSTALLER_ISS_PATH.read_text(encoding="utf-8")
 
         self.assertIn("function IsAppRunning(): Boolean;", content)
+        self.assertIn("function CloseRunningApp(): Boolean;", content)
         self.assertIn("function InitializeSetup(): Boolean;", content)
         self.assertIn("function InitializeUninstall(): Boolean;", content)
         self.assertIn("tasklist /FI", content)
         self.assertIn("IMAGENAME eq {#MyAppExeName}", content)
-        self.assertIn("MB_RETRYCANCEL", content)
-        self.assertIn("请先关闭程序窗口和托盘图标", content)
+        self.assertIn("taskkill /IM {#MyAppExeName} /T /F", content)
+        self.assertIn("检测到 {#MyAppName} 仍在运行，安装程序无法自动关闭它。", content)
+        self.assertIn("请手动关闭程序窗口和托盘图标后重新运行安装程序。", content)
+        self.assertNotIn("MB_RETRYCANCEL", content)
+        self.assertNotIn("请先关闭程序窗口和托盘图标，然后点击“重试”继续安装。", content)
+        self.assertNotIn("请先关闭程序窗口和托盘图标，然后点击“重试”继续卸载。", content)
 
     def test_installer_asks_before_removing_business_data(self):
         content = INSTALLER_ISS_PATH.read_text(encoding="utf-8")

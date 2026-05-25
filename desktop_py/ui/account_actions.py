@@ -89,13 +89,16 @@ def edit_account(window: Any, *, account_dialog_cls: Any, default_state_path_fn:
     if not account:
         window._show_info("提示", "请先选择一个账号。")
         return
-    if not account.is_entry_account:
-        window._show_info("提示", "导入账号不允许编辑。")
-        return
-    dialog = account_dialog_cls(account, parent=window)
+    dialog = account_dialog_cls(account, parent=window, enabled_only=not account.is_entry_account)
     if dialog.exec() != dialog.DialogCode.Accepted:
         return
     updated = dialog.build_account()
+    if not account.is_entry_account:
+        account.enabled = updated.enabled
+        save_accounts_fn(window.accounts)
+        window.refresh_table()
+        window.append_log("账号已更新。")
+        return
     if not updated.name:
         window._show_warning("提示", "账号名称不能为空。")
         return
@@ -139,6 +142,9 @@ def import_accounts(window: Any, *, fetch_switchable_accounts_fn: Any, save_acco
         return
     if not base_account.is_entry_account:
         window._show_info("提示", "只有主账号可以导入账号列表。")
+        return
+    if not base_account.enabled:
+        window._show_info("提示", "账号已停用，请先启用后再导入账号列表。")
         return
     if sync_account_feedback_url(window.accounts, base_account) and callable(save_accounts_fn):
         save_accounts_fn(window.accounts)

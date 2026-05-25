@@ -235,10 +235,7 @@ def extract_deadline_from_refund_capture(capture: dict[str, Any] | None) -> str:
     candidates: list[str] = []
     items = _refund_items_from_capture(capture)
     for item in items:
-        ctrl_info = item.get("ctrl_info")
-        if not isinstance(ctrl_info, dict):
-            continue
-        deadline_text = _fallback_from_responses([ctrl_info])
+        deadline_text = _fallback_from_responses([item])
         if deadline_text:
             candidates.append(deadline_text)
     if capture is None:
@@ -256,11 +253,22 @@ def extract_deadline_from_captures(captures: list[Any]) -> str:
     list_deadline = _earliest_deadline_text(
         [extract_deadline_from_refund_capture(capture) for capture in list_captures]
     )
-    if len(list_captures) > 1 and deadline_text and list_deadline:
+    if deadline_text and list_deadline:
         return _earliest_deadline_text([deadline_text, list_deadline]) or deadline_text
     if deadline_text:
         return deadline_text
     return list_deadline
+
+
+def _list_captures_for_feedback_url(captures: list[Any], feedback_url: str) -> list[dict[str, Any]]:
+    current_token = (parse_qs(urlparse(feedback_url).query).get("token") or [""])[0].strip()
+    current_list_captures: list[dict[str, Any]] = []
+    for capture in _refund_list_captures(captures):
+        capture_token = str(capture.get("token", "") or "").strip()
+        if current_token and capture_token and capture_token != current_token:
+            continue
+        current_list_captures.append(capture)
+    return current_list_captures
 
 
 def matches_refund_response_contract(response: Any, feedback_url: str, response_type: str) -> bool:
@@ -539,6 +547,23 @@ def build_detail_result(
     confirm_detail_deadline_fn: Callable[..., tuple[str, str, str]],
     is_cancelled: CancelCheck | None = None,
 ) -> FetchResult:
+    list_deadline_text = extract_deadline_from_captures(_list_captures_for_feedback_url(captures, feedback_url))
+    if list_deadline_text:
+        actual_account_name = extract_current_account_name_fn(page)
+        persist_storage_state(context, account.state_path, page=page, logger=logger, log_fn=_log)
+        result = FetchResult(
+            account_name=account.name,
+            ok=True,
+            actual_account_name=actual_account_name,
+            deadline_text=list_deadline_text,
+            deadline_source="list-capture",
+            matched_path="$response.list.deadline",
+            page_url=feedback_url,
+            note="已完成列表页抓取。",
+        )
+        write_fetch_result(account.name, result)
+        return result
+
     action_locator = frame_locator.get_by_text("处理", exact=True)
     detail_capture_start = 0
     if action_locator.count():

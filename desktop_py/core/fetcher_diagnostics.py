@@ -96,12 +96,6 @@ def build_success_log_lines(
     refund_outcomes: tuple[Any, ...],
 ) -> list[str]:
     lines: list[str] = []
-    notification_summary = str(notification_outcome.get("summary", "") or "").strip()
-    if notification_summary:
-        lines.append(_ensure_sentence(notification_summary))
-    transaction_complaint_summary = _transaction_complaint_log_summary(transaction_complaint_outcome or {})
-    if transaction_complaint_summary:
-        lines.append(transaction_complaint_summary)
     for outcome in refund_outcomes:
         route = outcome.route
         if not isinstance(route, FeedbackRoute):
@@ -116,6 +110,12 @@ def build_success_log_lines(
                 lines.append(f"IOS退款问询处理截止时间：{str(outcome.result.deadline_text).strip()}。")
             else:
                 lines.append("IOS退款问询当前无待处理申请。")
+    transaction_complaint_summary = _transaction_complaint_log_summary(transaction_complaint_outcome or {})
+    if transaction_complaint_summary:
+        lines.append(transaction_complaint_summary)
+    notification_summary = str(notification_outcome.get("summary", "") or "").strip()
+    if notification_summary:
+        lines.append(_ensure_sentence(notification_summary))
     return lines
 
 
@@ -161,14 +161,14 @@ def compose_fetch_result(
     if result.actual_account_name.strip():
         set_page_current_account_name_fn(page, result.actual_account_name.strip())
 
-    notification_summary = str(notification_outcome.get("summary", "") or "").strip()
-    if notification_outcome.get("notifications") or not notification_outcome.get("ok", True):
-        result.note = "；".join(item for item in [result.note, notification_summary] if item)
     transaction_complaint_summary = str(transaction_complaint_outcome.get("summary", "") or "").strip()
     if transaction_complaint_outcome.get("enabled") and (
         transaction_complaint_summary or not transaction_complaint_outcome.get("ok", True)
     ):
         result.note = "；".join(item for item in [result.note, transaction_complaint_summary] if item)
+    notification_summary = str(notification_outcome.get("summary", "") or "").strip()
+    if notification_outcome.get("notifications") or not notification_outcome.get("ok", True):
+        result.note = "；".join(item for item in [result.note, notification_summary] if item)
 
     result_extra: dict[str, Any] = {}
     if notification_outcome.get("notifications"):

@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QKeyEvent
-from PySide6.QtWidgets import QApplication, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSystemTrayIcon
 
 from desktop_py.core.models import AccountConfig, AppSettings, FetchResult
 from desktop_py.core.store import SHARED_BROWSER_PROFILE_DIR_NAME
@@ -35,6 +35,8 @@ __all__ = [
     "QCloseEvent",
     "QKeyEvent",
     "QApplication",
+    "QLabel",
+    "QPushButton",
     "QSystemTrayIcon",
     "AccountConfig",
     "AppSettings",

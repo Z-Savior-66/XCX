@@ -120,12 +120,40 @@ class UiSessionTestCase(UiTestBase):
         window.table.selectRow(1)
         self.assertFalse(window.login_button.isEnabled())
         self.assertFalse(window.renew_button.isEnabled())
-        self.assertFalse(window.edit_button.isEnabled())
+        self.assertTrue(window.edit_button.isEnabled())
         self.assertFalse(window.import_button.isEnabled())
         self.assertFalse(window.validate_button.isEnabled())
         self.assertTrue(window.fetch_selected_button.isEnabled())
         self.assertFalse(window.stop_fetch_button.isEnabled())
         self.assertTrue(window.delete_button.isEnabled())
+
+    def test_disabled_entry_account_disables_runtime_actions(self):
+        window = MainWindow()
+        self.addCleanup(window.close)
+        window.accounts = [
+            AccountConfig(name="入口账号", state_path="storage/shared.json", is_entry_account=True, enabled=False),
+            AccountConfig(name="导入账号", state_path="storage/shared.json", is_entry_account=False, enabled=True),
+        ]
+        window.refresh_table()
+        window.table.selectRow(0)
+
+        self.assertFalse(window.login_button.isEnabled())
+        self.assertFalse(window.renew_button.isEnabled())
+        self.assertTrue(window.edit_button.isEnabled())
+        self.assertFalse(window.import_button.isEnabled())
+        self.assertFalse(window.validate_button.isEnabled())
+        self.assertFalse(window.fetch_selected_button.isEnabled())
+        self.assertTrue(window.delete_button.isEnabled())
+
+        with (
+            patch.object(window, "_show_info"),
+            patch.object(window, "_run_thread") as mock_run_thread,
+        ):
+            window.login_selected()
+            window.renew_selected()
+            window.validate_selected()
+
+        mock_run_thread.assert_not_called()
 
     def test_mark_validation_propagates_feedback_url_to_shared_accounts(self):
         window = MainWindow()

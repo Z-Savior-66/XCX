@@ -8,6 +8,7 @@ from desktop_py.core.fetcher_diagnostics import (
     write_batch_diagnostic_index_safely,
     write_fetch_result_payload,
 )
+from desktop_py.core.fetcher_routes import FeedbackRoute
 from desktop_py.core.fetcher_manifest import BatchDiagnosticAccountRecord, BatchDiagnosticIndex
 from desktop_py.core.models import FetchResult
 
@@ -54,8 +55,8 @@ class FetcherDiagnosticsTestCase(unittest.TestCase):
         self.assertEqual(
             lines,
             [
-                "通知中心无目标未读消息。",
                 "交易投诉待处理 1 条，投诉编号：48383455。",
+                "通知中心无目标未读消息。",
             ],
         )
 
@@ -80,8 +81,45 @@ class FetcherDiagnosticsTestCase(unittest.TestCase):
         self.assertEqual(
             lines,
             [
-                "通知中心无目标未读消息。",
                 "交易投诉无待处理。",
+                "通知中心无目标未读消息。",
+            ],
+        )
+
+    def test_build_success_log_lines_orders_refund_ios_before_notification(self):
+        refund = type(
+            "Outcome",
+            (),
+            {
+                "route": FeedbackRoute(name="regular", step_label="退款反馈页", build_feedback_url_fn=lambda url: url),
+                "result": FetchResult(account_name="小章鱼消消乐", ok=True, deadline_text="2026-05-29 11:20:47"),
+            },
+        )()
+        ios_refund = type(
+            "Outcome",
+            (),
+            {
+                "route": FeedbackRoute(name="ios", step_label="iOS退款问询", build_feedback_url_fn=lambda url: url),
+                "result": FetchResult(account_name="小章鱼消消乐", ok=True, deadline_text=""),
+            },
+        )()
+
+        lines = build_success_log_lines(
+            notification_outcome={
+                "ok": True,
+                "notifications": [],
+                "summary": "通知中心无目标未读消息。",
+                "page_url": "https://example.com/notice",
+            },
+            refund_outcomes=(refund, ios_refund),
+        )
+
+        self.assertEqual(
+            lines,
+            [
+                "未成年退款申请处理截止时间：2026-05-29 11:20:47。",
+                "IOS退款问询当前无待处理申请。",
+                "通知中心无目标未读消息。",
             ],
         )
 
@@ -112,6 +150,30 @@ class FetcherDiagnosticsTestCase(unittest.TestCase):
         self.assertIn("交易投诉命中", result.note)
         self.assertEqual(result_extra["notifications"], [{"id": 1}])
         self.assertEqual(result_extra["transaction_complaints"], [{"id": 2}])
+
+    def test_compose_fetch_result_orders_transaction_note_before_notification_note(self):
+        result, result_extra = compose_fetch_result(
+            page=object(),
+            account_name="当代情诗摘抄合集",
+            refund_outcomes=(),
+            notification_outcome={
+                "ok": True,
+                "notifications": [{"title": "你的账号收到一条侵权投诉"}],
+                "summary": "通知中心未读消息 1 条：你的账号收到一条侵权投诉",
+            },
+            transaction_complaint_outcome={
+                "enabled": True,
+                "ok": True,
+                "complaints": [{"complaint_order_id": "48648037"}],
+                "summary": "交易投诉待处理 1 条：48648037",
+                "page_url": "https://example.com/complaints",
+            },
+            set_page_current_account_name_fn=lambda _page, _name: None,
+        )
+
+        self.assertLess(result.note.index("交易投诉待处理"), result.note.index("通知中心未读消息"))
+        self.assertEqual(result_extra["notifications"], [{"title": "你的账号收到一条侵权投诉"}])
+        self.assertEqual(result_extra["transaction_complaints"], [{"complaint_order_id": "48648037"}])
 
     def test_write_helpers_delegate_and_log_failure(self):
         with patch("desktop_py.core.fetcher_diagnostics.write_fetch_result") as mock_write_result:

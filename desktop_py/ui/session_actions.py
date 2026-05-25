@@ -19,6 +19,8 @@ def auto_validate_entry_account(window: Any, *, os_module: Any, validate_account
     account = entry_account(window)
     if account is None:
         return
+    if not account.enabled:
+        return
     account.last_status = STATUS_CHECKING
     account.last_note = ""
     window.refresh_table()
@@ -40,10 +42,10 @@ def safe_validate_account_state(window: Any, account: Any, *, validate_account_s
 
 def account_for_auto_renew(window: Any, candidates: list | None = None) -> Any:
     current_entry_account = entry_account(window)
-    if current_entry_account is not None:
+    if current_entry_account is not None and current_entry_account.enabled:
         return current_entry_account
     if candidates:
-        return candidates[0]
+        return next((account for account in candidates if getattr(account, "enabled", True)), None)
     return None
 
 
@@ -72,6 +74,9 @@ def login_selected(window: Any, *, save_login_state_with_profile_fn: Any, save_l
         return
     if not account.is_entry_account:
         window._show_info("提示", "导入账号不能直接保存登录态，请选择入口账号。")
+        return
+    if not account.enabled:
+        window._show_info("提示", "账号已停用，请先启用后再保存登录态。")
         return
     window.append_log(window._login_start_message(account))
     window._run_thread(
@@ -121,6 +126,9 @@ def validate_selected(window: Any, *, validate_account_state_fn: Any) -> None:
     if not account.is_entry_account:
         window._show_info("提示", "导入账号不能校验登录态，请选择主账号。")
         return
+    if not account.enabled:
+        window._show_info("提示", "账号已停用，请先启用后再校验登录态。")
+        return
     window._run_thread(
         lambda log: validate_account_state_fn(account, log, window.settings.browser_profile_dir),
         on_success=lambda ok: window._mark_validation(account, bool(ok)),
@@ -134,6 +142,9 @@ def renew_selected(window: Any, *, renew_account_state_fn: Any, close_all_group_
         return
     if not account.is_entry_account:
         window._show_info("提示", "导入账号不能登录续期，请选择主账号。")
+        return
+    if not account.enabled:
+        window._show_info("提示", "账号已停用，请先启用后再登录续期。")
         return
 
     def job(log: Any) -> Any:

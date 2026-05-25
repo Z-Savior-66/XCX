@@ -19,6 +19,9 @@ def fetch_selected(window: Any, *, fetch_account_fn: Any) -> None:
     if account.is_entry_account:
         window._show_info("提示", "主账号不参与抓取，请选择导入账号。")
         return
+    if not account.enabled:
+        window._show_info("提示", "账号已停用，请先启用后再抓取。")
+        return
     window._run_thread(
         lambda log, _progress=None, is_cancelled=None: fetch_account_fn(
             account, 0, window.settings.headless_fetch, log, window.settings.browser_profile_dir, is_cancelled

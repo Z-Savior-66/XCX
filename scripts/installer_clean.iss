@@ -182,38 +182,45 @@ begin
     Result := Pos(UpperCase('{#MyAppExeName}'), UpperCase(String(OutputText))) > 0;
 end;
 
-function InitializeSetup(): Boolean;
+function CloseRunningApp(): Boolean;
+var
+  ResultCode: Integer;
 begin
   Result := True;
-  while IsAppRunning() do begin
-    if MsgBox(
-      '检测到 {#MyAppName} 正在运行。' + #13#10 + #13#10 +
-      '请先关闭程序窗口和托盘图标，然后点击“重试”继续安装。' + #13#10 +
-      '如果暂时不安装，请点击“取消”退出。',
-      mbConfirmation,
-      MB_RETRYCANCEL
-    ) = idCancel then begin
+  if IsAppRunning() then begin
+    if not Exec(
+      ExpandConstant('{cmd}'),
+      '/C taskkill /IM {#MyAppExeName} /T /F',
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    ) then begin
       Result := False;
       Exit;
+    end;
+
+    Sleep(1000);
+    if IsAppRunning() then begin
+      MsgBox(
+        '检测到 {#MyAppName} 仍在运行，安装程序无法自动关闭它。' + #13#10 + #13#10 +
+        '请手动关闭程序窗口和托盘图标后重新运行安装程序。',
+        mbError,
+        MB_OK
+      );
+      Result := False;
     end;
   end;
 end;
 
+function InitializeSetup(): Boolean;
+begin
+  Result := CloseRunningApp();
+end;
+
 function InitializeUninstall(): Boolean;
 begin
-  Result := True;
-  while IsAppRunning() do begin
-    if MsgBox(
-      '检测到 {#MyAppName} 正在运行。' + #13#10 + #13#10 +
-      '请先关闭程序窗口和托盘图标，然后点击“重试”继续卸载。' + #13#10 +
-      '如果暂时不卸载，请点击“取消”退出。',
-      mbConfirmation,
-      MB_RETRYCANCEL
-    ) = idCancel then begin
-      Result := False;
-      Exit;
-    end;
-  end;
+  Result := CloseRunningApp();
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
