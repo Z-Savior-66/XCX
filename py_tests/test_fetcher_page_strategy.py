@@ -336,7 +336,9 @@ class FetcherPageStrategyTestCase(FetcherTestBase):
         }
         non_empty_capture = {
             "response_type": "list",
-            "body": {"data": {"list": [{"status_text": "待处理", "deadline_time": "2026-04-25 00:00:00"}], "total_cnt": 1}},
+            "body": {
+                "data": {"list": [{"status_text": "待处理", "deadline_time": "2026-04-25 00:00:00"}], "total_cnt": 1}
+            },
         }
 
         self.assertEqual(list_capture_result([empty_capture]), "empty")
