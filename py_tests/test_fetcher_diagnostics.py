@@ -8,8 +8,8 @@ from desktop_py.core.fetcher_diagnostics import (
     write_batch_diagnostic_index_safely,
     write_fetch_result_payload,
 )
-from desktop_py.core.fetcher_routes import FeedbackRoute
 from desktop_py.core.fetcher_manifest import BatchDiagnosticAccountRecord, BatchDiagnosticIndex
+from desktop_py.core.fetcher_routes import FeedbackRoute
 from desktop_py.core.models import FetchResult
 
 
