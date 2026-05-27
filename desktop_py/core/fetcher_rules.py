@@ -126,7 +126,10 @@ DEFAULT_NOTIFICATION_RULES = NotificationRuleSet(
     entry_text="通知中心",
     target_titles={
         "annual_review": "小程序微信认证年审通知",
+        "annual_review_expired": "小程序微信认证过期通知",
         "copyright_complaint": "你的账号收到一条侵权投诉",
+        "deposit_payment": "保证金缴纳通知",
+        "payment_verification_failed": "打款验证失败通知",
     },
 )
 
@@ -209,7 +212,7 @@ def match_notification_title(title: str, rules: NotificationRuleSet = DEFAULT_NO
     if not normalized_title:
         return RuleMatchResult(False, rule_version=rules.version)
     for rule_name, expected_title in rules.target_titles.items():
-        if normalized_title == expected_title:
+        if expected_title in normalized_title:
             return RuleMatchResult(
                 True,
                 rule_name=rule_name,

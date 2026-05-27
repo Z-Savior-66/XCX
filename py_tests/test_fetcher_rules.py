@@ -67,11 +67,39 @@ class FetcherRulesTestCase(unittest.TestCase):
 
         self.assertEqual(deadline, "2026-04-14 14:24:09")
 
-    def test_notification_rule_match_returns_rule_version(self):
-        match = match_notification_title("小程序微信认证年审通知")
+    def test_notification_rule_match_returns_rule_name_and_version(self):
+        cases = {
+            "小程序微信认证年审通知": "annual_review",
+            "小程序微信认证过期通知": "annual_review_expired",
+            "你的账号收到一条侵权投诉": "copyright_complaint",
+            "保证金缴纳通知": "deposit_payment",
+            "打款验证失败通知": "payment_verification_failed",
+        }
 
-        self.assertTrue(match.matched)
-        self.assertEqual(match.rule_name, "annual_review")
+        for title, rule_name in cases.items():
+            with self.subTest(title=title):
+                match = match_notification_title(title)
+                self.assertTrue(match.matched)
+                self.assertEqual(match.rule_name, rule_name)
+                self.assertEqual(match.rule_version, DEFAULT_FETCH_RULE_VERSION)
+
+    def test_notification_rule_match_accepts_titles_containing_target_keyword(self):
+        cases = {
+            "【重要】小程序微信认证过期通知，请及时处理": "annual_review_expired",
+            "保证金缴纳通知（待处理）": "deposit_payment",
+            "系统提醒：打款验证失败通知": "payment_verification_failed",
+        }
+
+        for title, rule_name in cases.items():
+            with self.subTest(title=title):
+                match = match_notification_title(title)
+                self.assertTrue(match.matched)
+                self.assertEqual(match.rule_name, rule_name)
+
+    def test_notification_rule_match_ignores_unrelated_titles(self):
+        match = match_notification_title("保证金余额提醒")
+
+        self.assertFalse(match.matched)
         self.assertEqual(match.rule_version, DEFAULT_FETCH_RULE_VERSION)
 
 

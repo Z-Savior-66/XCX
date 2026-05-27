@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from PySide6.QtCore import QEvent, Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFrame,
@@ -35,6 +36,7 @@ PROCESS_LOG_PREFIXES = (
     "已切换到账号：",
     "当前已是目标账号：",
 )
+LOG_ACCOUNT_NAME_HIGHLIGHT_COLOR = "#facc15"
 
 
 def build_ui(window: Any, hover_table_cls: type, row_highlight_delegate_cls: type) -> None:
@@ -518,7 +520,41 @@ def append_log(window: Any, message: str) -> None:
     if not should_show_runtime_log_message(message):
         return
     timestamp = datetime.now().strftime("%H:%M:%S")
-    window.log_edit.appendPlainText(f"[{timestamp}] {format_runtime_log_message(message)}")
+    _append_log_text(window.log_edit, f"[{timestamp}] {format_runtime_log_message(message)}")
+
+
+def _append_log_text(log_edit: QPlainTextEdit, text: str) -> None:
+    cursor = log_edit.textCursor()
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    if log_edit.document().characterCount() > 1:
+        cursor.insertBlock()
+
+    name_start, name_end = _account_name_log_range(text)
+    if name_start < 0:
+        cursor.insertText(text)
+        log_edit.setTextCursor(cursor)
+        return
+
+    highlight_format = QTextCharFormat()
+    highlight_format.setForeground(QColor(LOG_ACCOUNT_NAME_HIGHLIGHT_COLOR))
+    highlight_format.setFontWeight(QFont.Weight.Bold)
+    cursor.insertText(text[:name_start])
+    cursor.insertText(text[name_start:name_end], highlight_format)
+    cursor.insertText(text[name_end:], QTextCharFormat())
+    log_edit.setTextCursor(cursor)
+
+
+def _account_name_log_range(text: str) -> tuple[int, int]:
+    header_marker = "账号："
+    status_marker = "｜状态："
+    header_start = text.find(header_marker)
+    if header_start < 0:
+        return -1, -1
+    name_start = header_start + len(header_marker)
+    name_end = text.find(status_marker, name_start)
+    if name_end <= name_start:
+        return -1, -1
+    return name_start, name_end
 
 
 def should_show_runtime_log_message(message: str) -> bool:

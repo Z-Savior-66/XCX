@@ -1,3 +1,5 @@
+from PySide6.QtGui import QFont
+
 from py_tests.ui_test_support import (
     AccountConfig,
     AppSettings,
@@ -219,6 +221,9 @@ class UiSmokeTestCase(UiTestBase):
         self.assertIn("账号：当代情诗摘抄合集｜状态：成功", text)
         self.assertIn("1. 通知中心无目标未读消息。", text)
         self.assertIn("2. 交易投诉无待处理。", text)
+        account_name_format = window.log_edit.document().find("当代情诗摘抄合集").charFormat()
+        self.assertEqual(account_name_format.foreground().color().name(), "#facc15")
+        self.assertGreaterEqual(account_name_format.fontWeight(), QFont.Weight.Bold)
 
     def test_append_log_formats_fetch_failure_as_account_result_block(self):
         window = MainWindow()

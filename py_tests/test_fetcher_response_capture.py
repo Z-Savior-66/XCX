@@ -31,8 +31,36 @@ class FetcherResponseCaptureTestCase(FetcherTestBase):
             {
                 "notify_id": "3",
                 "class_name": "notice_item js_msg_item",
-                "title": "其它通知",
+                "title": "保证金缴纳通知（待处理）",
+                "time_text": "2026-04-11",
+                "content_text": "保证金内容",
+            },
+            {
+                "notify_id": "4",
+                "class_name": "notice_item js_msg_item",
+                "title": "系统提醒：打款验证失败通知",
                 "time_text": "2026-04-10",
+                "content_text": "打款验证内容",
+            },
+            {
+                "notify_id": "5",
+                "class_name": "notice_item js_msg_item",
+                "title": "小程序微信认证过期通知，请及时处理",
+                "time_text": "2026-04-09",
+                "content_text": "过期内容",
+            },
+            {
+                "notify_id": "6",
+                "class_name": "notice_item js_msg_item readed",
+                "title": "小程序微信认证过期通知",
+                "time_text": "2026-04-08",
+                "content_text": "已读过期通知",
+            },
+            {
+                "notify_id": "7",
+                "class_name": "notice_item js_msg_item",
+                "title": "其它通知",
+                "time_text": "2026-04-07",
                 "content_text": "其它内容",
             },
         ]
@@ -51,7 +79,37 @@ class FetcherResponseCaptureTestCase(FetcherTestBase):
                     "is_unread": True,
                     "matched_rule": "annual_review",
                     "rule_version": "2026-05-14.v1",
-                }
+                },
+                {
+                    "account_name": "账号A",
+                    "notify_id": "3",
+                    "title": "保证金缴纳通知（待处理）",
+                    "time_text": "2026-04-11",
+                    "content_text": "保证金内容",
+                    "is_unread": True,
+                    "matched_rule": "deposit_payment",
+                    "rule_version": "2026-05-14.v1",
+                },
+                {
+                    "account_name": "账号A",
+                    "notify_id": "4",
+                    "title": "系统提醒：打款验证失败通知",
+                    "time_text": "2026-04-10",
+                    "content_text": "打款验证内容",
+                    "is_unread": True,
+                    "matched_rule": "payment_verification_failed",
+                    "rule_version": "2026-05-14.v1",
+                },
+                {
+                    "account_name": "账号A",
+                    "notify_id": "5",
+                    "title": "小程序微信认证过期通知，请及时处理",
+                    "time_text": "2026-04-09",
+                    "content_text": "过期内容",
+                    "is_unread": True,
+                    "matched_rule": "annual_review_expired",
+                    "rule_version": "2026-05-14.v1",
+                },
             ],
         )
 
@@ -60,9 +118,15 @@ class FetcherResponseCaptureTestCase(FetcherTestBase):
             [
                 {"title": "小程序微信认证年审通知"},
                 {"title": "你的账号收到一条侵权投诉"},
+                {"title": "小程序微信认证过期通知"},
+                {"title": "保证金缴纳通知"},
+                {"title": "打款验证失败通知"},
             ]
         )
-        self.assertEqual(summary, "通知中心未读消息 2 条：小程序微信认证年审通知、你的账号收到一条侵权投诉")
+        self.assertEqual(
+            summary,
+            "通知中心未读消息 5 条：小程序微信认证年审通知、你的账号收到一条侵权投诉、小程序微信认证过期通知 等",
+        )
 
     def test_fallback_from_responses_prefers_appeal_deadline_time(self):
         deadline = _fallback_from_responses(
