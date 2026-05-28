@@ -36,6 +36,7 @@ from desktop_py.core.store import (
     default_state_path,
     ensure_runtime_dirs,
     load_accounts,
+    load_blocked_account_names,
     load_schedule_state,
     load_settings,
     prepare_shared_browser_profile_dir,
@@ -247,13 +248,6 @@ from desktop_py.ui.message_dialog import MessageDialog
 from desktop_py.ui.settings_dialog import SettingsDialog
 from desktop_py.ui.task_runner import WindowTaskRunner
 from desktop_py.ui.workers import TaskThread
-
-BLOCKED_ACCOUNT_NAMES = {
-    "山每北荒修僊1",
-    "山每北荒修僊2",
-    "山每北荒修僊4",
-    "叨空SSR",
-}
 
 AUTO_RENEW_INTERVAL_MIN_MS = 2 * 60 * 60 * 1000
 AUTO_RENEW_INTERVAL_MAX_MS = 4 * 60 * 60 * 1000
@@ -515,7 +509,7 @@ class MainWindow(QMainWindow):
             self,
             base_account,
             names,
-            blocked_account_names=BLOCKED_ACCOUNT_NAMES,
+            blocked_account_names=load_blocked_account_names(),
             account_config_cls=AccountConfig,
             save_accounts_fn=save_accounts,
         )

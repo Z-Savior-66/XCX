@@ -4,15 +4,28 @@ import hashlib
 import json
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
 from desktop_py.core.models import FetchResult
 
 
-def send_feishu_text(webhook: str, content: str) -> None:
-    if not webhook.strip():
+def _validate_webhook_url(webhook: str) -> str:
+    url = webhook.strip()
+    if not url:
         raise ValueError("飞书机器人地址不能为空。")
+    parsed = urlparse(url)
+    if parsed.scheme not in ("https",):
+        raise ValueError("飞书机器人地址必须以 HTTPS 开头。")
+    host = (parsed.netloc or "").lower()
+    if not host.endswith("feishu.cn") and not host.endswith("larkoffice.com"):
+        raise ValueError("飞书机器人地址域名不合法，仅支持飞书/Lark 官方接入点。")
+    return url
+
+
+def send_feishu_text(webhook: str, content: str) -> None:
+    webhook = _validate_webhook_url(webhook)
     response = requests.post(webhook, json={"msg_type": "text", "content": {"text": content}}, timeout=20)
     response.raise_for_status()
     payload = _read_feishu_response(response)

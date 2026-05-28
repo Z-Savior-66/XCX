@@ -29,10 +29,10 @@ class NotifierTestCase(unittest.TestCase):
         response = FakeFeishuResponse({"code": 0, "msg": "success"})
 
         with patch("desktop_py.core.notifier.requests.post", return_value=response) as mock_post:
-            send_feishu_text("https://example.com/hook", "内容")
+            send_feishu_text("https://open.feishu.cn/open-apis/bot/v2/hook/test-hook", "内容")
 
         mock_post.assert_called_once_with(
-            "https://example.com/hook",
+            "https://open.feishu.cn/open-apis/bot/v2/hook/test-hook",
             json={"msg_type": "text", "content": {"text": "内容"}},
             timeout=20,
         )
@@ -43,21 +43,21 @@ class NotifierTestCase(unittest.TestCase):
 
         with patch("desktop_py.core.notifier.requests.post", return_value=response):
             with self.assertRaisesRegex(ValueError, "业务码 19021：机器人不存在"):
-                send_feishu_text("https://example.com/hook", "内容")
+                send_feishu_text("https://open.feishu.cn/open-apis/bot/v2/hook/test-hook", "内容")
 
     def test_send_feishu_text_rejects_non_json_response(self):
         response = FakeFeishuResponse(json_error=ValueError("not json"))
 
         with patch("desktop_py.core.notifier.requests.post", return_value=response):
             with self.assertRaisesRegex(ValueError, "响应不是有效 JSON"):
-                send_feishu_text("https://example.com/hook", "内容")
+                send_feishu_text("https://open.feishu.cn/open-apis/bot/v2/hook/test-hook", "内容")
 
     def test_send_feishu_text_rejects_missing_business_code(self):
         response = FakeFeishuResponse({"msg": "success"})
 
         with patch("desktop_py.core.notifier.requests.post", return_value=response):
             with self.assertRaisesRegex(ValueError, "缺少业务状态码"):
-                send_feishu_text("https://example.com/hook", "内容")
+                send_feishu_text("https://open.feishu.cn/open-apis/bot/v2/hook/test-hook", "内容")
 
     def test_summary_contains_actual_account_name(self):
         text = build_summary(

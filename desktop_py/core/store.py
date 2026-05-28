@@ -47,6 +47,7 @@ ACCOUNTS_FILE = DATA_DIR / "accounts.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 SCHEDULE_STATE_FILE = DATA_DIR / "schedule_state.json"
 RUNNING_INSTANCE_LOCK_FILE = DATA_DIR / "app.lock"
+BLOCKED_ACCOUNTS_FILE = Path(__file__).resolve().parent / "blocked_accounts.json"
 DIAGNOSTIC_INDEX_FILE = PY_OUTPUT_DIR / "diagnostic_index.json"
 DIAGNOSTIC_ARTIFACT_NAMES = frozenset(
     {
@@ -419,3 +420,23 @@ def cleanup_account_diagnostics(account_name: str, *, retention_days: int = 14) 
         except OSError:
             continue
     return removed
+
+
+def load_blocked_account_names() -> set[str]:
+    ensure_runtime_dirs()
+    try:
+        data = cast(list[str], _read_json_file_or_recover(BLOCKED_ACCOUNTS_FILE, "[]\n"))
+    except json.JSONDecodeError, TypeError:
+        return set()
+    if not isinstance(data, list):
+        return set()
+    return {item for item in data if isinstance(item, str) and item.strip()}
+
+
+def save_blocked_account_names(names: set[str]) -> None:
+    ensure_runtime_dirs()
+    sorted_names = sorted(name for name in names if name.strip())
+    _write_text_atomic(
+        BLOCKED_ACCOUNTS_FILE,
+        json.dumps(sorted_names, ensure_ascii=False, indent=2) + "\n",
+    )
