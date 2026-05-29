@@ -20,6 +20,12 @@ class BuildInstallerScriptTestCase(unittest.TestCase):
         self.assertIn("--collect-all playwright", content)
         self.assertIn("_internal\\playwright\\driver\\package\\.local-browsers", content)
 
+    def test_build_script_does_not_collect_blocked_accounts_resource(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertNotIn("desktop_py\\core\\blocked_accounts.json", content)
+        self.assertNotIn("blockedAccountsPath", content)
+
     def test_build_script_places_temporary_outputs_under_cache_root(self):
         content = SCRIPT_PATH.read_text(encoding="utf-8")
         installer_content = INSTALLER_ISS_PATH.read_text(encoding="utf-8")

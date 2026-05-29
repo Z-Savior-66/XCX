@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from desktop_py.core.models import CONFIG_SCHEMA_VERSION, AccountConfig, AppSettings, ScheduleState
 from desktop_py.core.store import (
+    DEFAULT_BLOCKED_ACCOUNT_NAMES,
     SHARED_BROWSER_PROFILE_DIR_NAME,
     _write_text_atomic,
     account_output_file,
@@ -16,6 +17,7 @@ from desktop_py.core.store import (
     cleanup_account_diagnostics,
     diagnostic_index_file,
     load_accounts,
+    load_blocked_account_names,
     load_schedule_state,
     load_settings,
     prepare_shared_browser_profile_dir,
@@ -55,6 +57,18 @@ class StoreTestCase(unittest.TestCase):
         self.assertFalse(settings.auto_fetch_push_enabled)
         self.assertEqual(settings.diagnostic_retention_days, 14)
         self.assertEqual(settings.schema_version, CONFIG_SCHEMA_VERSION)
+
+    def test_load_blocked_account_names_creates_default_file_when_missing(self):
+        with TemporaryDirectory() as temp_dir:
+            missing_path = Path(temp_dir) / "blocked_accounts.json"
+
+            with patch("desktop_py.core.store.BLOCKED_ACCOUNTS_FILE", missing_path):
+                names = load_blocked_account_names()
+
+            created_data = json.loads(missing_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(names, set(DEFAULT_BLOCKED_ACCOUNT_NAMES))
+        self.assertEqual(created_data, list(DEFAULT_BLOCKED_ACCOUNT_NAMES))
 
     def test_load_schedule_state_defaults_when_missing(self):
         with TemporaryDirectory() as temp_dir:

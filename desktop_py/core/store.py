@@ -48,6 +48,13 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 SCHEDULE_STATE_FILE = DATA_DIR / "schedule_state.json"
 RUNNING_INSTANCE_LOCK_FILE = DATA_DIR / "app.lock"
 BLOCKED_ACCOUNTS_FILE = Path(__file__).resolve().parent / "blocked_accounts.json"
+DEFAULT_BLOCKED_ACCOUNT_NAMES = (
+    "山每北荒修僊1",
+    "山每北荒修僊2",
+    "山每北荒修僊4",
+    "叨空SSR",
+)
+DEFAULT_BLOCKED_ACCOUNTS_CONTENT = json.dumps(list(DEFAULT_BLOCKED_ACCOUNT_NAMES), ensure_ascii=False, indent=2) + "\n"
 DIAGNOSTIC_INDEX_FILE = PY_OUTPUT_DIR / "diagnostic_index.json"
 DIAGNOSTIC_ARTIFACT_NAMES = frozenset(
     {
@@ -422,11 +429,17 @@ def cleanup_account_diagnostics(account_name: str, *, retention_days: int = 14) 
     return removed
 
 
+def _ensure_blocked_accounts_file() -> None:
+    if not BLOCKED_ACCOUNTS_FILE.exists():
+        _write_text_atomic(BLOCKED_ACCOUNTS_FILE, DEFAULT_BLOCKED_ACCOUNTS_CONTENT)
+
+
 def load_blocked_account_names() -> set[str]:
     ensure_runtime_dirs()
     try:
+        _ensure_blocked_accounts_file()
         data = cast(list[str], _read_json_file_or_recover(BLOCKED_ACCOUNTS_FILE, "[]\n"))
-    except json.JSONDecodeError, TypeError:
+    except OSError, json.JSONDecodeError, TypeError:
         return set()
     if not isinstance(data, list):
         return set()
