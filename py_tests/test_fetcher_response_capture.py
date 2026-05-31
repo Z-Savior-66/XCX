@@ -1,3 +1,4 @@
+from desktop_py.core.notification_page_strategy import mark_all_notifications_read
 from py_tests.fetcher_test_support import (
     FakeResponse,
     FetcherTestBase,
@@ -127,6 +128,66 @@ class FetcherResponseCaptureTestCase(FetcherTestBase):
             summary,
             "通知中心未读消息 5 条：小程序微信认证年审通知、你的账号收到一条侵权投诉、小程序微信认证过期通知 等",
         )
+
+    def test_mark_all_notifications_read_clicks_page_action_when_unread_targets_exist(self):
+        calls = []
+
+        class ActionLocator:
+            first = None
+
+            def __init__(self, count=1):
+                self._count = count
+                self.first = self
+
+            def count(self):
+                return self._count
+
+            def click(self, timeout=None):
+                calls.append(("click", timeout))
+
+        class ItemLocator:
+            def count(self):
+                return 1
+
+            def evaluate_all(self, script):
+                calls.append(("evaluate_all", script))
+                return ["notice_item js_msg_item readed"]
+
+        class NotificationPage:
+            def locator(self, selector):
+                calls.append(("locator", selector))
+                if selector == "a.notification_header_read":
+                    return ActionLocator()
+                if selector == "dl.notice_item.js_msg_item":
+                    return ItemLocator()
+                return ActionLocator(0)
+
+            def get_by_text(self, text, exact=False):
+                calls.append(("get_by_text", text, exact))
+                return ActionLocator(0)
+
+            def expect_response(self, predicate, timeout=None):
+                calls.append(("expect_response", timeout))
+
+                class ResponseWait:
+                    def __enter__(self):
+                        return self
+
+                    def __exit__(self, exc_type, exc, tb):
+                        return False
+
+                return ResponseWait()
+
+            def wait_for_timeout(self, timeout):
+                calls.append(("wait_for_timeout", timeout))
+
+        marked = mark_all_notifications_read(NotificationPage(), [{"title": "小程序微信认证年审通知"}])
+
+        self.assertTrue(marked)
+        self.assertIn(("locator", "a.notification_header_read"), calls)
+        self.assertIn(("expect_response", 8000), calls)
+        self.assertIn(("click", 3000), calls)
+        self.assertTrue(any(call[0] == "evaluate_all" for call in calls))
 
     def test_fallback_from_responses_prefers_appeal_deadline_time(self):
         deadline = _fallback_from_responses(

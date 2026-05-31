@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -19,6 +20,7 @@ NOTIFICATION_CENTER_URL_KEYWORD = DEFAULT_NOTIFICATION_RULES.center_url_keyword
 NOTIFICATION_CONTAINER_SELECTOR = DEFAULT_NOTIFICATION_RULES.container_selector
 NOTIFICATION_ITEM_SELECTOR = DEFAULT_NOTIFICATION_RULES.item_selector
 NOTIFICATION_ENTRY_TEXT = DEFAULT_NOTIFICATION_RULES.entry_text
+NOTIFICATION_MARK_ALL_READ_SELECTOR = "a.notification_header_read"
 TARGET_NOTIFICATION_RULES = DEFAULT_NOTIFICATION_RULES.target_titles
 
 Logger = Callable[[str], None]
@@ -80,6 +82,79 @@ def build_notification_summary(notifications: list[dict[str, Any]]) -> str:
     titles = "、".join(str(item["title"]) for item in notifications[:3] if item.get("title"))
     suffix = " 等" if len(notifications) > 3 else ""
     return f"通知中心未读消息 {len(notifications)} 条：{titles}{suffix}"
+
+
+def _locator_count(locator: Any) -> int:
+    try:
+        return int(locator.count())
+    except Exception:
+        return 0
+
+
+def _click_locator(locator: Any, timeout_ms: int) -> None:
+    try:
+        locator.first.click(timeout=timeout_ms)
+    except Exception:
+        locator.first.evaluate("e => e.click()")
+
+
+def _is_mark_all_read_response(response: Any) -> bool:
+    url = str(getattr(response, "url", "") or "").lower()
+    return (
+        "wasysnotify" in url
+        and ("action%3dupdate" in url or "action=update" in url)
+        and ("all%3d1" in url or "all=1" in url)
+    )
+
+
+def _notification_items_all_read(page: Any) -> bool:
+    locator = page.locator(NOTIFICATION_ITEM_SELECTOR)
+    if _locator_count(locator) == 0:
+        return True
+    class_names = locator.evaluate_all("elements => elements.map(el => el.className || '')")
+    return all("readed" in str(class_name) for class_name in class_names)
+
+
+def _wait_for_notifications_read_state(page: Any, timeout_ms: int = 5000, interval_ms: int = 200) -> bool:
+    deadline = time.monotonic() + timeout_ms / 1000
+    while True:
+        if _notification_items_all_read(page):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        page.wait_for_timeout(interval_ms)
+
+
+def mark_all_notifications_read(page: Any, notifications: list[dict[str, Any]]) -> bool:
+    if not notifications:
+        return False
+    action = page.locator(NOTIFICATION_MARK_ALL_READ_SELECTOR)
+    if _locator_count(action) == 0:
+        for text in ("全部已读", "全部标为已读", "标记全部已读"):
+            action = page.get_by_text(text, exact=False)
+            if _locator_count(action) > 0:
+                break
+        else:
+            return False
+
+    expect_response = getattr(page, "expect_response", None)
+    if callable(expect_response):
+        clicked = False
+        try:
+            with expect_response(_is_mark_all_read_response, timeout=8000):
+                _click_locator(action, 3000)
+                clicked = True
+        except Exception:
+            if not clicked:
+                _click_locator(action, 3000)
+    else:
+        _click_locator(action, 3000)
+
+    try:
+        page.wait_for_load_state("networkidle", timeout=4000)
+    except Exception:
+        pass
+    return _wait_for_notifications_read_state(page)
 
 
 def open_notification_center(
@@ -167,6 +242,7 @@ def fetch_notifications(
         notifications = filter_target_unread_notifications(items, account.name)
         write_account_output_json(account.name, "notifications.json", notifications)
         summary = build_notification_summary(notifications)
+        mark_all_notifications_read(page, notifications)
         return {
             "ok": True,
             "notifications": notifications,
