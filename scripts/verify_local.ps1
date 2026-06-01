@@ -3,6 +3,13 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $cacheRoot = Join-Path $projectRoot ".cache"
+$venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
+if (Test-Path -LiteralPath $venvPython) {
+    $pythonCommand = $venvPython
+}
+else {
+    $pythonCommand = "python"
+}
 $env:QT_QPA_PLATFORM = "offscreen"
 $env:PYTHONDONTWRITEBYTECODE = "1"
 $env:PYTHONPYCACHEPREFIX = Join-Path $cacheRoot "pycache"
@@ -11,27 +18,27 @@ New-Item -ItemType Directory -Path $env:PYTHONPYCACHEPREFIX -Force | Out-Null
 $verificationSteps = @(
     @{
         Name      = "format check"
-        Command   = "python"
+        Command   = $pythonCommand
         Arguments = @("-m", "ruff", "format", "--check", ".")
     }
     @{
         Name      = "lint check"
-        Command   = "python"
+        Command   = $pythonCommand
         Arguments = @("-m", "ruff", "check", ".")
     }
     @{
         Name      = "type check"
-        Command   = "python"
+        Command   = $pythonCommand
         Arguments = @("-m", "mypy")
     }
     @{
         Name      = "unittest"
-        Command   = "python"
+        Command   = $pythonCommand
         Arguments = @("-m", "unittest", "discover", "-s", "py_tests", "-v")
     }
     @{
         Name      = "pytest"
-        Command   = "python"
+        Command   = $pythonCommand
         Arguments = @("-m", "pytest", "py_tests", "-q")
     }
 )

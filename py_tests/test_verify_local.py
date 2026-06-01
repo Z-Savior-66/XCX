@@ -21,6 +21,14 @@ class VerifyLocalScriptTestCase(unittest.TestCase):
         self.assertIn('Arguments = @("-m", "mypy")', content)
         self.assertIn('Arguments = @("-m", "pytest", "py_tests", "-q")', content)
 
+    def test_script_prefers_project_virtualenv_python(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn('$venvPython = Join-Path $projectRoot ".venv\\Scripts\\python.exe"', content)
+        self.assertIn("if (Test-Path -LiteralPath $venvPython)", content)
+        self.assertIn("$pythonCommand = $venvPython", content)
+        self.assertIn("Command   = $pythonCommand", content)
+
     def test_script_places_python_bytecode_cache_under_cache_root(self):
         content = SCRIPT_PATH.read_text(encoding="utf-8")
 
