@@ -47,7 +47,7 @@ def playwright_browsers_ready() -> bool:
     root = configure_playwright_environment()
     try:
         required_directories = required_browser_directories()
-    except OSError, json.JSONDecodeError, KeyError, TypeError:
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
         return False
     return all(_browser_directory_ready(root / name) for name in required_directories)
 

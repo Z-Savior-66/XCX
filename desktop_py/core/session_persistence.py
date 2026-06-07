@@ -59,7 +59,7 @@ def _cookie_matches_domain(cookie: dict[str, Any], domain_keywords: tuple[str, .
 def _cookie_expires_at(cookie: dict[str, Any]) -> float | None:
     try:
         expires = float(cookie.get("expires", -1))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     if expires <= 0:
         return None

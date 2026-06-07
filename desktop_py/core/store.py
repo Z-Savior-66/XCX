@@ -76,7 +76,7 @@ class AppInstanceLock:
     def release(self) -> None:
         try:
             payload = read_json_file(self.path)
-        except OSError, json.JSONDecodeError:
+        except (OSError, json.JSONDecodeError):
             return
         if not isinstance(payload, dict):
             return
@@ -95,14 +95,14 @@ def read_json_file(path: Path) -> Any:
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value or default)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value or default)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
 
 
@@ -176,7 +176,7 @@ def acquire_app_instance_lock(
         except FileExistsError:
             try:
                 existing_payload = read_json_file(lock_path)
-            except OSError, json.JSONDecodeError:
+            except (OSError, json.JSONDecodeError):
                 existing_payload = {}
             if _lock_payload_is_active(
                 existing_payload,
@@ -334,7 +334,7 @@ def _schedule_state_from_mapping(raw: dict[str, Any]) -> ScheduleState:
 def _legacy_schedule_state_from_settings() -> ScheduleState:
     try:
         raw = read_json_file(SETTINGS_FILE)
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return ScheduleState()
     if not isinstance(raw, dict):
         return ScheduleState()
@@ -439,7 +439,7 @@ def load_blocked_account_names() -> set[str]:
     try:
         _ensure_blocked_accounts_file()
         data = cast(list[str], _read_json_file_or_recover(BLOCKED_ACCOUNTS_FILE, "[]\n"))
-    except OSError, json.JSONDecodeError, TypeError:
+    except (OSError, json.JSONDecodeError, TypeError):
         return set()
     if not isinstance(data, list):
         return set()

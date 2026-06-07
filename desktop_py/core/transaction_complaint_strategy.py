@@ -167,7 +167,7 @@ def normalize_transaction_complaint_item(
     raw_status = item.get("status", 0)
     try:
         status = int(raw_status)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         status = 0
     return {
         "complaint_order_id": str(item.get("complaintOrderId", "") or "").strip(),

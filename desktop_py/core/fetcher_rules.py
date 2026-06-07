@@ -154,7 +154,7 @@ def transaction_complaint_rules_file(path: Path | None = None) -> Path:
 def _safe_int(value: Any, default: int) -> int:
     try:
         return int(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
 
 
@@ -192,7 +192,7 @@ def load_transaction_complaint_rules(path: Path | None = None) -> TransactionCom
     rules_file = transaction_complaint_rules_file(path)
     try:
         payload = json.loads(rules_file.read_text(encoding="utf-8-sig"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return DEFAULT_TRANSACTION_COMPLAINT_RULES
     if not isinstance(payload, dict):
         return DEFAULT_TRANSACTION_COMPLAINT_RULES
