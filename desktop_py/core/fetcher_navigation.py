@@ -3,10 +3,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from desktop_py.core.fetcher_common import CancelCheck, FetchError
+from desktop_py.core.fetcher_common import CancelCheck, FetchError, Logger
 from desktop_py.core.fetcher_support import recover_login_timeout_page
 
-Logger = Callable[[str], None]
 LogFn = Callable[[Logger | None, str], None]
 
 

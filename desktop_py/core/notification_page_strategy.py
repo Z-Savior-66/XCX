@@ -5,6 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
+from desktop_py.core.fetcher_common import CancelCheck, Logger, _wait_for_timeout
 from desktop_py.core.fetcher_rules import DEFAULT_NOTIFICATION_RULES, match_notification_title
 from desktop_py.core.fetcher_support import (
     FetchError,
@@ -23,13 +24,7 @@ NOTIFICATION_ENTRY_TEXT = DEFAULT_NOTIFICATION_RULES.entry_text
 NOTIFICATION_MARK_ALL_READ_SELECTOR = "a.notification_header_read"
 TARGET_NOTIFICATION_RULES = DEFAULT_NOTIFICATION_RULES.target_titles
 
-Logger = Callable[[str], None]
-CancelCheck = Callable[[], bool]
 LogFn = Callable[[Logger | None, str], None]
-
-
-def _wait_for_timeout(current_page: Any, wait_ms: int, _cancelled: CancelCheck | None = None) -> None:
-    current_page.wait_for_timeout(wait_ms)
 
 
 def collect_notification_items(page: Any) -> list[dict[str, Any]]:

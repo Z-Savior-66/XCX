@@ -11,6 +11,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, cast
 
+from desktop_py.core.fetcher_common import _safe_int
 from desktop_py.core.models import AccountConfig, AppSettings, FetchResult, ScheduleState
 
 APP_NAME = "小程序工具"
@@ -91,13 +92,6 @@ class AppInstanceLock:
 
 def read_json_file(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8-sig"))
-
-
-def _safe_int(value: Any, default: int = 0) -> int:
-    try:
-        return int(value or default)
-    except (TypeError, ValueError):
-        return default
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:

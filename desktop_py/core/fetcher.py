@@ -15,6 +15,7 @@ configure_playwright_environment()
 
 from playwright.sync_api import sync_playwright
 
+from desktop_py.core.fetcher_common import CancelCheck, Logger
 from desktop_py.core.fetcher_page_strategy import (
     build_detail_result,
     build_empty_refund_result,
@@ -107,9 +108,6 @@ PUBLIC_FETCHER_API = (
 __all__ = [
     *PUBLIC_FETCHER_API,
 ]
-
-Logger = Callable[[str], None]
-CancelCheck = Callable[[], bool]
 Progress = Callable[[FetchResult], None]
 
 

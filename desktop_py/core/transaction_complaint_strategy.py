@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
+from desktop_py.core.fetcher_common import CancelCheck, Logger, _wait_for_timeout
 from desktop_py.core.fetcher_rules import (
     DEFAULT_TRANSACTION_COMPLAINT_RULES,
     TransactionComplaintRuleSet,
@@ -29,8 +30,6 @@ TRANSACTION_COMPLAINT_STATUS_TEXT = {
     DEFAULT_TRANSACTION_COMPLAINT_RULES.pending_status: DEFAULT_TRANSACTION_COMPLAINT_RULES.pending_status_text
 }
 
-Logger = Callable[[str], None]
-CancelCheck = Callable[[], bool]
 LogFn = Callable[[Logger | None, str], None]
 
 
@@ -45,10 +44,6 @@ def should_fetch_transaction_complaints(
 ) -> bool:
     resolved_rules = _resolve_transaction_complaint_rules(rules)
     return account.name.strip() in resolved_rules.target_account_names
-
-
-def _wait_for_timeout(current_page: Any, wait_ms: int, _cancelled: CancelCheck | None = None) -> None:
-    current_page.wait_for_timeout(wait_ms)
 
 
 def build_transaction_complaint_page_url(token: str) -> str:

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from desktop_py.core.fetcher_common import _log
 from desktop_py.core.fetcher_support import FetchError, persist_storage_state
 from desktop_py.core.models import AccountConfig
 
@@ -335,10 +336,6 @@ def should_invalidate_runtime(exc: Exception) -> bool:
     )
     return any(token in message for token in fatal_tokens)
 
-
-def _log(logger: Callable[[str], None] | None, message: str) -> None:
-    if logger:
-        logger(message)
 
 
 atexit.register(close_all_group_runtimes)

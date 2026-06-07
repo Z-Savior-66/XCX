@@ -9,6 +9,7 @@ from typing import Any
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from desktop_py.core.diagnostic_log import log_session_offline, log_session_renew_failed
+from desktop_py.core.fetcher_common import CancelCheck, Logger
 from desktop_py.core.fetcher_support import (
     FetchError,
     ensure_account_session_available,
@@ -33,8 +34,6 @@ from desktop_py.core.session_probe import (
     verify_backend_session,
 )
 
-Logger = Callable[[str], None]
-CancelCheck = Callable[[], bool]
 LogFn = Callable[[Logger | None, str], None]
 
 

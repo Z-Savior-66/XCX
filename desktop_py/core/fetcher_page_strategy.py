@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
+from desktop_py.core.fetcher_common import CancelCheck, Logger, _log
 from desktop_py.core.fetcher_output import persist_storage_state
 from desktop_py.core.fetcher_rules import DEFAULT_REFUND_RULES
 from desktop_py.core.fetcher_support import FetchError, FetchErrorCode, _fallback_from_responses
@@ -19,8 +20,6 @@ from desktop_py.core.response_capture import (
 )
 from desktop_py.core.store import write_account_output_text, write_fetch_result
 
-Logger = Callable[[str], None]
-CancelCheck = Callable[[], bool]
 LogFn = Callable[[Logger | None, str], None]
 
 REFUND_COUNT_PATTERN = re.compile(r"退款申请[（(]\s*(\d+)\s*[）)]")
@@ -616,6 +615,3 @@ def build_detail_result(
     return result
 
 
-def _log(logger: Logger | None, message: str) -> None:
-    if logger:
-        logger(message)

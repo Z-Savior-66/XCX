@@ -4,6 +4,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from desktop_py.core.fetcher_common import Logger
 from desktop_py.core.fetcher_manifest import (
     BatchDiagnosticIndex,
     FetchRunManifest,
@@ -15,7 +16,6 @@ from desktop_py.core.fetcher_routes import FeedbackRoute
 from desktop_py.core.models import FetchResult
 from desktop_py.core.store import write_fetch_result
 
-Logger = Callable[[str], None]
 LogFn = Callable[[Logger | None, str], None]
 
 

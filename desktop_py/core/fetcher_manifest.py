@@ -8,14 +8,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
-from desktop_py.core.fetcher_common import fetch_error_code
+from desktop_py.core.fetcher_common import _now_text, fetch_error_code
 from desktop_py.core.fetcher_rules import DEFAULT_FETCH_RULE_VERSION
 from desktop_py.core.models import AccountConfig, FetchResult
 from desktop_py.core.store import write_account_output_json, write_diagnostic_index_json
-
-
-def _now_text() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 @dataclass

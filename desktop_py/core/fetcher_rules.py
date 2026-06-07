@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from desktop_py.core.fetcher_common import _safe_int
 from desktop_py.core.store import DATA_DIR
 
 DEFAULT_FETCH_RULE_VERSION = "2026-05-14.v1"
@@ -149,13 +150,6 @@ def transaction_complaint_rules_file(path: Path | None = None) -> Path:
     if data_path.exists():
         return data_path
     return Path(__file__).resolve().with_name(TRANSACTION_COMPLAINT_RULES_FILE_NAME)
-
-
-def _safe_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _string_tuple(value: Any, default: tuple[str, ...]) -> tuple[str, ...]:

@@ -7,6 +7,7 @@ from typing import Any, cast
 
 from playwright.sync_api import Locator, Page
 
+from desktop_py.core.fetcher_common import CancelCheck, Logger, _wait_for_timeout
 from desktop_py.core.fetcher_support import (
     FetchError,
     FetchErrorCode,
@@ -22,13 +23,7 @@ from desktop_py.core.fetcher_support import (
 from desktop_py.core.models import AccountConfig
 from desktop_py.core.session_links import canonical_feedback_url
 
-Logger = Callable[[str], None]
-CancelCheck = Callable[[], bool]
 LogFn = Callable[[Logger | None, str], None]
-
-
-def _wait_for_timeout(current_page: Any, wait_ms: int, _cancelled: CancelCheck | None = None) -> None:
-    current_page.wait_for_timeout(wait_ms)
 
 
 def find_switch_entry_impl(page: Page) -> Locator | None:

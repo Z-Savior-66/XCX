@@ -8,7 +8,7 @@ from typing import Any
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from desktop_py.core.fetcher_common import CancelCheck
+from desktop_py.core.fetcher_common import Logger, _now_text, _wait_for_timeout
 from desktop_py.core.models import (
     SESSION_SOURCE_PROFILE,
     SESSION_SOURCE_STATE_FILE,
@@ -39,7 +39,6 @@ BACKEND_SESSION_CONTENT_KEYWORDS = (
 SESSION_STALE_AFTER = timedelta(days=3)
 SESSION_TIME_FORMATS = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M")
 
-Logger = Callable[[str], None]
 LogFn = Callable[[Logger | None, str], None]
 
 
@@ -59,10 +58,6 @@ class SessionVerification:
 
 def session_source_for_profile_dir(profile_dir: str) -> str:
     return SESSION_SOURCE_PROFILE if profile_dir.strip() else SESSION_SOURCE_STATE_FILE
-
-
-def _now_text() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _parse_datetime(value: str) -> datetime | None:
@@ -117,10 +112,6 @@ def mark_account_session_missing(account: AccountConfig, *, profile_dir: str = "
     account.session_status = SESSION_STATUS_MISSING
     account.session_source = session_source_for_profile_dir(profile_dir)
     account.last_session_error = reason.strip()
-
-
-def _wait_for_timeout(current_page: Any, wait_ms: int, _cancelled: CancelCheck | None = None) -> None:
-    current_page.wait_for_timeout(wait_ms)
 
 
 def _has_backend_session_url(page: Any) -> bool:

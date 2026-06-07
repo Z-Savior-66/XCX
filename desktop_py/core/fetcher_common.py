@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -156,6 +157,21 @@ def fetch_error_code(error: BaseException) -> str:
     if isinstance(code, str):
         return code.strip()
     return ""
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _now_text() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _wait_for_timeout(current_page: Any, wait_ms: int, _cancelled: CancelCheck | None = None) -> None:
+    current_page.wait_for_timeout(wait_ms)
 
 
 def _log(logger: Logger | None, message: str) -> None:

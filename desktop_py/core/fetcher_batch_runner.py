@@ -5,6 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from desktop_py.core.fetcher_common import CancelCheck, Logger
 from desktop_py.core.fetcher_manifest import (
     BatchDiagnosticIndex,
     add_batch_diagnostic_account,
@@ -21,8 +22,6 @@ from desktop_py.core.fetcher_support import (
 from desktop_py.core.models import AccountConfig, FetchResult
 from desktop_py.core.store import account_output_file
 
-Logger = Callable[[str], None]
-CancelCheck = Callable[[], bool]
 Progress = Callable[[FetchResult], None]
 
 

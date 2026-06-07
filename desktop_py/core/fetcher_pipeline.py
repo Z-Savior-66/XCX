@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from desktop_py.core.fetcher_batch_runner import run_fetch_accounts_batch
+from desktop_py.core.fetcher_common import CancelCheck, Logger
 from desktop_py.core.fetcher_context import PipelineContext
 from desktop_py.core.fetcher_diagnostics import (
     compose_fetch_result,
@@ -43,9 +44,6 @@ from desktop_py.core.fetcher_support import (
 from desktop_py.core.models import AccountConfig, FetchResult
 
 BATCH_RUNTIME_REFRESH_EVERY = 5
-
-Logger = Callable[[str], None]
-CancelCheck = Callable[[], bool]
 LogFn = Callable[[Logger | None, str], None]
 
 
