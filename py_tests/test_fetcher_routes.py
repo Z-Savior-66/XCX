@@ -142,8 +142,8 @@ class FetcherRouteTestCase(FetcherTestBase):
             build_detail_result_fn=lambda **kwargs: FetchResult(account_name="账号A", ok=True),
         )
 
-        self.assertEqual([route.name for route in context.collection_routes], ["通知中心"])
-        self.assertEqual([route.name for route in context.feedback_routes], ["退款反馈页", "iOS退款问询"])
+        self.assertEqual([route.name for route in context.shared.collection_routes], ["通知中心"])
+        self.assertEqual([route.name for route in context.shared.feedback_routes], ["退款反馈页", "iOS退款问询"])
 
     def test_collect_ios_refund_subject_captures_switches_other_subjects_and_paginates(self):
         captures = [{"response_type": "list", "body": {"data": {"list": []}}}]

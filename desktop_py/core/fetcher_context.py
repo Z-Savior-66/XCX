@@ -29,16 +29,23 @@ class FetcherDeps:
 
 
 @dataclass(frozen=True)
-class PipelineContext:
+class NavigationContext:
+    """Page navigation, account switching, and session management."""
+
     account_output_dir_fn: Callable[[str], Path]
-    register_response_capture_fn: Callable[..., tuple[list[Any], Callable[[], None]]]
-    capture_response_payload_fn: Callable[..., Any]
     resolve_bootstrap_url_fn: Callable[[AccountConfig, Path], str]
     wait_for_url_contains_fn: Callable[..., Any]
     extract_current_account_name_fn: Callable[[Any], str]
     should_switch_for_account_fn: Callable[[AccountConfig, str], bool]
     switch_to_account_fn: Callable[..., Any]
-    log_fn: Callable[[Callable[[str], None] | None, str], None]
+
+
+@dataclass(frozen=True)
+class CaptureContext:
+    """Feedback page interaction, iframe handling, and data capture."""
+
+    register_response_capture_fn: Callable[..., tuple[list[Any], Callable[[], None]]]
+    capture_response_payload_fn: Callable[..., Any]
     open_feedback_page_fn: Callable[..., str]
     build_feedback_url_fn: Callable[..., str]
     build_ios_refund_feedback_url_fn: Callable[..., str] | None
@@ -49,7 +56,30 @@ class PipelineContext:
     fetch_paginated_refund_list_captures_fn: Callable[..., list[Any]] | None
     is_empty_refund_list_fn: Callable[..., bool]
     confirm_empty_refund_list_fn: Callable[..., tuple[bool, str]]
+
+
+@dataclass(frozen=True)
+class ResultBuildContext:
+    """Result construction callbacks."""
+
     build_empty_refund_result_fn: Callable[..., FetchResult]
     build_detail_result_fn: Callable[..., FetchResult]
+
+
+@dataclass(frozen=True)
+class SharedContext:
+    """Common utilities, logging, and routing configuration."""
+
+    log_fn: Callable[[Callable[[str], None] | None, str], None]
     collection_routes: tuple[CollectionRoute, ...]
     feedback_routes: tuple[FeedbackRoute, ...]
+
+
+@dataclass(frozen=True)
+class PipelineContext:
+    """Aggregates all pipeline sub-contexts."""
+
+    navigation: NavigationContext
+    capture: CaptureContext
+    result: ResultBuildContext
+    shared: SharedContext

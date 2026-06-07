@@ -7,7 +7,14 @@ from typing import Any, cast
 
 from desktop_py.core.fetcher_batch_runner import run_fetch_accounts_batch
 from desktop_py.core.fetcher_common import CancelCheck, Logger
-from desktop_py.core.fetcher_context import FetcherDeps, PipelineContext
+from desktop_py.core.fetcher_context import (
+    CaptureContext,
+    FetcherDeps,
+    NavigationContext,
+    PipelineContext,
+    ResultBuildContext,
+    SharedContext,
+)
 from desktop_py.core.fetcher_diagnostics import (
     compose_fetch_result,
     default_notification_outcome,
@@ -368,7 +375,7 @@ def _build_refund_route_result(
 ) -> _RefundRouteOutcome:
     if flow.empty_confirmed:
         with fetch_step(manifest, f"生成{route.step_label}空列表采集结果"):
-            result = pipeline_context.build_empty_refund_result_fn(
+            result = pipeline_context.result.build_empty_refund_result_fn(
                 page=page,
                 context=context,
                 account=account,
@@ -379,13 +386,13 @@ def _build_refund_route_result(
                 feedback_url=flow.feedback_url,
                 profile_dir=profile_dir,
                 logger=logger,
-                safe_page_content_fn=pipeline_context.safe_page_content_fn,
-                extract_current_account_name_fn=pipeline_context.extract_current_account_name_fn,
+                safe_page_content_fn=pipeline_context.capture.safe_page_content_fn,
+                extract_current_account_name_fn=pipeline_context.navigation.extract_current_account_name_fn,
                 is_cancelled=is_cancelled,
             )
     else:
         with fetch_step(manifest, f"生成{route.step_label}详情页采集结果"):
-            result = pipeline_context.build_detail_result_fn(
+            result = pipeline_context.result.build_detail_result_fn(
                 page=page,
                 context=context,
                 account=account,
@@ -395,8 +402,8 @@ def _build_refund_route_result(
                 feedback_url=flow.feedback_url,
                 profile_dir=profile_dir,
                 logger=logger,
-                safe_page_content_fn=pipeline_context.safe_page_content_fn,
-                extract_current_account_name_fn=pipeline_context.extract_current_account_name_fn,
+                safe_page_content_fn=pipeline_context.capture.safe_page_content_fn,
+                extract_current_account_name_fn=pipeline_context.navigation.extract_current_account_name_fn,
             )
     return _RefundRouteOutcome(route=route, flow=flow, result=result)
 
@@ -428,29 +435,37 @@ def _build_pipeline_context(
     build_detail_result_fn: Callable[..., FetchResult],
 ) -> PipelineContext:
     return PipelineContext(
-        account_output_dir_fn=account_output_dir_fn,
-        register_response_capture_fn=register_response_capture_fn,
-        capture_response_payload_fn=capture_response_payload_fn,
-        resolve_bootstrap_url_fn=resolve_bootstrap_url_fn,
-        wait_for_url_contains_fn=wait_for_url_contains_fn,
-        extract_current_account_name_fn=extract_current_account_name_fn,
-        should_switch_for_account_fn=should_switch_for_account_fn,
-        switch_to_account_fn=switch_to_account_fn,
-        log_fn=log_fn,
-        open_feedback_page_fn=open_feedback_page_fn,
-        build_feedback_url_fn=build_feedback_url_fn,
-        build_ios_refund_feedback_url_fn=build_ios_refund_feedback_url_fn,
-        wait_for_iframe_ready_fn=wait_for_iframe_ready_fn,
-        resolve_frame_locator_fn=resolve_frame_locator_fn,
-        business_iframe_selector_fn=business_iframe_selector_fn,
-        safe_page_content_fn=safe_page_content_fn,
-        fetch_paginated_refund_list_captures_fn=fetch_paginated_refund_list_captures_fn,
-        is_empty_refund_list_fn=is_empty_refund_list_fn,
-        confirm_empty_refund_list_fn=confirm_empty_refund_list_fn,
-        build_empty_refund_result_fn=build_empty_refund_result_fn,
-        build_detail_result_fn=build_detail_result_fn,
-        collection_routes=_build_collection_routes(fetch_notifications_fn, fetch_transaction_complaints_fn),
-        feedback_routes=_build_feedback_routes(build_feedback_url_fn, build_ios_refund_feedback_url_fn),
+        navigation=NavigationContext(
+            account_output_dir_fn=account_output_dir_fn,
+            resolve_bootstrap_url_fn=resolve_bootstrap_url_fn,
+            wait_for_url_contains_fn=wait_for_url_contains_fn,
+            extract_current_account_name_fn=extract_current_account_name_fn,
+            should_switch_for_account_fn=should_switch_for_account_fn,
+            switch_to_account_fn=switch_to_account_fn,
+        ),
+        capture=CaptureContext(
+            register_response_capture_fn=register_response_capture_fn,
+            capture_response_payload_fn=capture_response_payload_fn,
+            open_feedback_page_fn=open_feedback_page_fn,
+            build_feedback_url_fn=build_feedback_url_fn,
+            build_ios_refund_feedback_url_fn=build_ios_refund_feedback_url_fn,
+            wait_for_iframe_ready_fn=wait_for_iframe_ready_fn,
+            resolve_frame_locator_fn=resolve_frame_locator_fn,
+            business_iframe_selector_fn=business_iframe_selector_fn,
+            safe_page_content_fn=safe_page_content_fn,
+            fetch_paginated_refund_list_captures_fn=fetch_paginated_refund_list_captures_fn,
+            is_empty_refund_list_fn=is_empty_refund_list_fn,
+            confirm_empty_refund_list_fn=confirm_empty_refund_list_fn,
+        ),
+        result=ResultBuildContext(
+            build_empty_refund_result_fn=build_empty_refund_result_fn,
+            build_detail_result_fn=build_detail_result_fn,
+        ),
+        shared=SharedContext(
+            log_fn=log_fn,
+            collection_routes=_build_collection_routes(fetch_notifications_fn, fetch_transaction_complaints_fn),
+            feedback_routes=_build_feedback_routes(build_feedback_url_fn, build_ios_refund_feedback_url_fn),
+        ),
     )
 
 
@@ -465,7 +480,7 @@ def _collect_collection_outcomes(
     is_cancelled: CancelCheck | None,
 ) -> dict[str, dict[str, Any]]:
     outcomes: dict[str, dict[str, Any]] = {}
-    for route in pipeline_context.collection_routes:
+    for route in pipeline_context.shared.collection_routes:
         outcomes[route.name] = _collect_collection_route(
             manifest,
             route,
@@ -473,9 +488,9 @@ def _collect_collection_outcomes(
             account=account,
             logger=logger,
             output_dir=output_dir,
-            log_fn=pipeline_context.log_fn,
-            wait_for_url_contains_fn=pipeline_context.wait_for_url_contains_fn,
-            safe_page_content_fn=pipeline_context.safe_page_content_fn,
+            log_fn=pipeline_context.shared.log_fn,
+            wait_for_url_contains_fn=pipeline_context.navigation.wait_for_url_contains_fn,
+            safe_page_content_fn=pipeline_context.capture.safe_page_content_fn,
             is_cancelled=is_cancelled,
         )
     return outcomes
@@ -491,7 +506,7 @@ def _fetch_account_in_page_with_context(
     *,
     pipeline_context: PipelineContext,
 ) -> FetchResult:
-    output_dir = pipeline_context.account_output_dir_fn(account.name)
+    output_dir = pipeline_context.navigation.account_output_dir_fn(account.name)
     manifest = start_fetch_run(account, profile_dir=profile_dir, output_dir=str(output_dir))
 
     def cleanup_response_capture() -> None:
@@ -502,30 +517,30 @@ def _fetch_account_in_page_with_context(
     transaction_complaint_outcome = default_transaction_complaint_outcome()
     try:
         with fetch_step(manifest, "注册响应监听"):
-            captures, cleanup_response_capture = pipeline_context.register_response_capture_fn(
-                page, pipeline_context.capture_response_payload_fn
+            captures, cleanup_response_capture = pipeline_context.capture.register_response_capture_fn(
+                page, pipeline_context.capture.capture_response_payload_fn
             )
 
-        bootstrap_url = pipeline_context.resolve_bootstrap_url_fn(account, output_dir)
+        bootstrap_url = pipeline_context.navigation.resolve_bootstrap_url_fn(account, output_dir)
         if not page_has_backend_session(page):
             with fetch_step(manifest, "进入微信后台", detail=bootstrap_url):
                 page.goto(bootstrap_url, wait_until="domcontentloaded", timeout=60000)
-                pipeline_context.wait_for_url_contains_fn(
+                pipeline_context.navigation.wait_for_url_contains_fn(
                     page, ("token=", "/wxamp/index/index"), timeout_ms=4000, is_cancelled=is_cancelled
                 )
                 set_page_home_ready(page, bootstrap_url == account.home_url)
 
         with fetch_step(manifest, "检查并恢复登录超时页"):
-            if is_login_timeout_page(page, safe_page_content_fn=pipeline_context.safe_page_content_fn):
+            if is_login_timeout_page(page, safe_page_content_fn=pipeline_context.capture.safe_page_content_fn):
                 recovered = _recover_timeout_page_if_needed(
                     page,
                     logger=logger,
-                    log_fn=pipeline_context.log_fn,
-                    safe_page_content_fn=pipeline_context.safe_page_content_fn,
+                    log_fn=pipeline_context.shared.log_fn,
+                    safe_page_content_fn=pipeline_context.capture.safe_page_content_fn,
                     is_cancelled=is_cancelled,
                 )
                 if recovered:
-                    pipeline_context.wait_for_url_contains_fn(
+                    pipeline_context.navigation.wait_for_url_contains_fn(
                         page, ("token=", "/wxamp/index/index"), timeout_ms=4000, is_cancelled=is_cancelled
                     )
 
@@ -546,18 +561,18 @@ def _fetch_account_in_page_with_context(
         with fetch_step(manifest, "确认当前账号"):
             current_account_name = page_current_account_name(page)
             if not current_account_name:
-                current_account_name = pipeline_context.extract_current_account_name_fn(page)
+                current_account_name = pipeline_context.navigation.extract_current_account_name_fn(page)
                 if current_account_name:
                     set_page_current_account_name(page, current_account_name)
 
         with fetch_step(manifest, "切换目标账号", detail=account.name):
-            if pipeline_context.should_switch_for_account_fn(account, current_account_name):
-                pipeline_context.switch_to_account_fn(page, account.name, account.home_url, logger)
+            if pipeline_context.navigation.should_switch_for_account_fn(account, current_account_name):
+                pipeline_context.navigation.switch_to_account_fn(page, account.name, account.home_url, logger)
                 set_page_current_account_name(page, account.name)
             elif account.is_entry_account:
-                pipeline_context.log_fn(logger, "入口账号使用当前共享会话，不执行切换账号。")
+                pipeline_context.shared.log_fn(logger, "入口账号使用当前共享会话，不执行切换账号。")
             else:
-                pipeline_context.log_fn(logger, f"账号 {account.name} 已处于当前会话，跳过切换步骤。")
+                pipeline_context.shared.log_fn(logger, f"账号 {account.name} 已处于当前会话，跳过切换步骤。")
 
         collection_outcomes = _collect_collection_outcomes(
             manifest,
@@ -574,7 +589,7 @@ def _fetch_account_in_page_with_context(
         refund_outcomes: tuple[_RefundRouteOutcome, ...] = ()
         if not transaction_complaint_outcome.get("enabled"):
             collected_refund_outcomes: list[_RefundRouteOutcome] = []
-            for route in pipeline_context.feedback_routes:
+            for route in pipeline_context.shared.feedback_routes:
                 flow = _collect_feedback_route_flow(
                     manifest=manifest,
                     route=route,
@@ -583,15 +598,15 @@ def _fetch_account_in_page_with_context(
                     output_dir=output_dir,
                     captures=captures,
                     logger=logger,
-                    log_fn=pipeline_context.log_fn,
-                    open_feedback_page_fn=pipeline_context.open_feedback_page_fn,
-                    wait_for_iframe_ready_fn=pipeline_context.wait_for_iframe_ready_fn,
-                    resolve_frame_locator_fn=pipeline_context.resolve_frame_locator_fn,
-                    business_iframe_selector_fn=pipeline_context.business_iframe_selector_fn,
-                    safe_page_content_fn=pipeline_context.safe_page_content_fn,
-                    fetch_paginated_refund_list_captures_fn=pipeline_context.fetch_paginated_refund_list_captures_fn,
-                    is_empty_refund_list_fn=pipeline_context.is_empty_refund_list_fn,
-                    confirm_empty_refund_list_fn=pipeline_context.confirm_empty_refund_list_fn,
+                    log_fn=pipeline_context.shared.log_fn,
+                    open_feedback_page_fn=pipeline_context.capture.open_feedback_page_fn,
+                    wait_for_iframe_ready_fn=pipeline_context.capture.wait_for_iframe_ready_fn,
+                    resolve_frame_locator_fn=pipeline_context.capture.resolve_frame_locator_fn,
+                    business_iframe_selector_fn=pipeline_context.capture.business_iframe_selector_fn,
+                    safe_page_content_fn=pipeline_context.capture.safe_page_content_fn,
+                    fetch_paginated_refund_list_captures_fn=pipeline_context.capture.fetch_paginated_refund_list_captures_fn,
+                    is_empty_refund_list_fn=pipeline_context.capture.is_empty_refund_list_fn,
+                    confirm_empty_refund_list_fn=pipeline_context.capture.confirm_empty_refund_list_fn,
                     is_cancelled=is_cancelled,
                 )
                 collected_refund_outcomes.append(
@@ -629,7 +644,7 @@ def _fetch_account_in_page_with_context(
             log_fetch_success_summary(
                 account_name=account.name,
                 logger=logger,
-                log_fn=pipeline_context.log_fn,
+                log_fn=pipeline_context.shared.log_fn,
                 notification_outcome=notification_outcome,
                 transaction_complaint_outcome=transaction_complaint_outcome,
                 refund_outcomes=refund_outcomes,
