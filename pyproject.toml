@@ -69,7 +69,6 @@ files = [
   "desktop_py/ui/account_actions.py",
   "desktop_py/ui/common_actions.py",
   "desktop_py/ui/fetch_actions.py",
-  "desktop_py/ui/main_window_actions_impl.py",
   "desktop_py/ui/notification_actions.py",
   "desktop_py/ui/schedule_actions.py",
   "desktop_py/ui/session_actions.py",

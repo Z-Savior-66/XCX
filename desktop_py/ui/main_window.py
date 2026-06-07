@@ -45,6 +45,30 @@ from desktop_py.core.store import (
     save_settings,
     validate_shared_browser_profile_dir,
 )
+from desktop_py.ui.account_actions import (
+    add_account as add_account_impl,
+)
+from desktop_py.ui.account_actions import (
+    choose_profile_dir as choose_profile_dir_impl,
+)
+from desktop_py.ui.account_actions import (
+    delete_account as delete_account_impl,
+)
+from desktop_py.ui.account_actions import (
+    edit_account as edit_account_impl,
+)
+from desktop_py.ui.account_actions import (
+    import_accounts as import_accounts_impl,
+)
+from desktop_py.ui.account_actions import (
+    merge_imported_accounts as merge_imported_accounts_impl,
+)
+from desktop_py.ui.account_actions import (
+    save_current_settings as save_current_settings_impl,
+)
+from desktop_py.ui.account_actions import (
+    select_imported_accounts as select_imported_accounts_impl,
+)
 from desktop_py.ui.account_dialog import AccountDialog
 from desktop_py.ui.account_presenter import (
     apply_batch_fetch_results,
@@ -54,146 +78,56 @@ from desktop_py.ui.account_presenter import (
     parse_deadline_for_sort,
     sort_accounts_for_display,
 )
-from desktop_py.ui.main_window_actions_impl import (
-    actual_account_name_from_note as actual_account_name_from_note_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    add_account as add_account_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    apply_auto_fetch_push_schedule as apply_auto_fetch_push_schedule_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    apply_auto_renew_schedule as apply_auto_renew_schedule_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    auto_fetch_and_send as auto_fetch_and_send_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    auto_validate_entry_account as auto_validate_entry_account_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    build_fetch_job as build_fetch_job_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    choose_profile_dir as choose_profile_dir_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    delete_account as delete_account_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    edit_account as edit_account_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    fetch_all as fetch_all_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    fetch_selected as fetch_selected_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    handle_auto_fetch_push_timeout as handle_auto_fetch_push_timeout_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    handle_auto_fetch_push_toggled as handle_auto_fetch_push_toggled_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    handle_auto_renew_timeout as handle_auto_renew_timeout_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
+from desktop_py.ui.common_actions import (
     handle_selection_changed as handle_selection_changed_impl,
 )
-from desktop_py.ui.main_window_actions_impl import (
+from desktop_py.ui.common_actions import (
     handle_thread_finished as handle_thread_finished_impl,
 )
-from desktop_py.ui.main_window_actions_impl import (
-    import_accounts as import_accounts_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
+from desktop_py.ui.common_actions import (
     initialize_window_state as initialize_window_state_impl,
 )
-from desktop_py.ui.main_window_actions_impl import (
-    login_selected as login_selected_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    login_start_message as login_start_message_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    mark_auto_renew_result as mark_auto_renew_result_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    mark_batch_results as mark_batch_results_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    mark_fetch_progress as mark_fetch_progress_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    mark_fetch_result as mark_fetch_result_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    mark_login as mark_login_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    mark_validation as mark_validation_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    merge_imported_accounts as merge_imported_accounts_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    milliseconds_until_next_auto_fetch_push as milliseconds_until_next_auto_fetch_push_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    renew_selected as renew_selected_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
+from desktop_py.ui.common_actions import (
     reset_current_main_account_name as reset_current_main_account_name_impl,
 )
-from desktop_py.ui.main_window_actions_impl import (
-    run_auto_fetch_push as run_auto_fetch_push_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    run_auto_renew as run_auto_renew_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
+from desktop_py.ui.common_actions import (
     run_thread as run_thread_impl,
 )
-from desktop_py.ui.main_window_actions_impl import (
-    safe_validate_account_state as safe_validate_account_state_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    save_current_settings as save_current_settings_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    schedule_startup_jobs as schedule_startup_jobs_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    select_imported_accounts as select_imported_accounts_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
+from desktop_py.ui.common_actions import (
     selected_account as selected_account_impl,
 )
-from desktop_py.ui.main_window_actions_impl import (
+from desktop_py.ui.common_actions import (
     selected_index as selected_index_impl,
 )
-from desktop_py.ui.main_window_actions_impl import (
+from desktop_py.ui.common_actions import (
     selected_indexes as selected_indexes_impl,
 )
-from desktop_py.ui.main_window_actions_impl import (
-    send_summary as send_summary_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
-    send_summary_with_webhook as send_summary_with_webhook_impl,
-)
-from desktop_py.ui.main_window_actions_impl import (
+from desktop_py.ui.common_actions import (
     stop_fetching as stop_fetching_impl,
 )
-from desktop_py.ui.main_window_actions_impl import (
+from desktop_py.ui.common_actions import (
     update_action_buttons as update_action_buttons_impl,
 )
-from desktop_py.ui.main_window_actions_impl import (
+from desktop_py.ui.common_actions import (
     update_current_main_account as update_current_main_account_impl,
 )
-from desktop_py.ui.main_window_actions_impl import (
-    validate_selected as validate_selected_impl,
+from desktop_py.ui.fetch_actions import (
+    build_fetch_job as build_fetch_job_impl,
+)
+from desktop_py.ui.fetch_actions import (
+    fetch_all as fetch_all_impl,
+)
+from desktop_py.ui.fetch_actions import (
+    fetch_selected as fetch_selected_impl,
+)
+from desktop_py.ui.fetch_actions import (
+    mark_batch_results as mark_batch_results_impl,
+)
+from desktop_py.ui.fetch_actions import (
+    mark_fetch_progress as mark_fetch_progress_impl,
+)
+from desktop_py.ui.fetch_actions import (
+    mark_fetch_result as mark_fetch_result_impl,
 )
 from desktop_py.ui.main_window_view import (
     append_log as append_log_impl,
@@ -245,6 +179,72 @@ from desktop_py.ui.main_window_view import (
 )
 from desktop_py.ui.main_window_widgets import HoverTableWidget, RowHighlightDelegate, ToggleActionButton
 from desktop_py.ui.message_dialog import MessageDialog
+from desktop_py.ui.notification_actions import (
+    actual_account_name_from_note as actual_account_name_from_note_impl,
+)
+from desktop_py.ui.notification_actions import (
+    auto_fetch_and_send as auto_fetch_and_send_impl,
+)
+from desktop_py.ui.notification_actions import (
+    send_summary as send_summary_impl,
+)
+from desktop_py.ui.notification_actions import (
+    send_summary_with_webhook as send_summary_with_webhook_impl,
+)
+from desktop_py.ui.schedule_actions import (
+    apply_auto_fetch_push_schedule as apply_auto_fetch_push_schedule_impl,
+)
+from desktop_py.ui.schedule_actions import (
+    apply_auto_renew_schedule as apply_auto_renew_schedule_impl,
+)
+from desktop_py.ui.schedule_actions import (
+    handle_auto_fetch_push_timeout as handle_auto_fetch_push_timeout_impl,
+)
+from desktop_py.ui.schedule_actions import (
+    handle_auto_fetch_push_toggled as handle_auto_fetch_push_toggled_impl,
+)
+from desktop_py.ui.schedule_actions import (
+    handle_auto_renew_timeout as handle_auto_renew_timeout_impl,
+)
+from desktop_py.ui.schedule_actions import (
+    mark_auto_renew_result as mark_auto_renew_result_impl,
+)
+from desktop_py.ui.schedule_actions import (
+    milliseconds_until_next_auto_fetch_push as milliseconds_until_next_auto_fetch_push_impl,
+)
+from desktop_py.ui.schedule_actions import (
+    run_auto_fetch_push as run_auto_fetch_push_impl,
+)
+from desktop_py.ui.schedule_actions import (
+    run_auto_renew as run_auto_renew_impl,
+)
+from desktop_py.ui.schedule_actions import (
+    schedule_startup_jobs as schedule_startup_jobs_impl,
+)
+from desktop_py.ui.session_actions import (
+    auto_validate_entry_account as auto_validate_entry_account_impl,
+)
+from desktop_py.ui.session_actions import (
+    login_selected as login_selected_impl,
+)
+from desktop_py.ui.session_actions import (
+    login_start_message as login_start_message_impl,
+)
+from desktop_py.ui.session_actions import (
+    mark_login as mark_login_impl,
+)
+from desktop_py.ui.session_actions import (
+    mark_validation as mark_validation_impl,
+)
+from desktop_py.ui.session_actions import (
+    renew_selected as renew_selected_impl,
+)
+from desktop_py.ui.session_actions import (
+    safe_validate_account_state as safe_validate_account_state_impl,
+)
+from desktop_py.ui.session_actions import (
+    validate_selected as validate_selected_impl,
+)
 from desktop_py.ui.settings_dialog import SettingsDialog
 from desktop_py.ui.task_runner import WindowTaskRunner
 from desktop_py.ui.workers import TaskThread

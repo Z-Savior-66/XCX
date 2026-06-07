@@ -150,7 +150,7 @@ class UiSchedulingTestCase(UiTestBase):
         self.assertEqual(AUTO_RENEW_INTERVAL_MAX_MS, 4 * 60 * 60 * 1000)
 
     def test_startup_jobs_trigger_auto_renew_by_default(self):
-        from desktop_py.ui.main_window_actions_impl import schedule_startup_jobs
+        from desktop_py.ui.schedule_actions import schedule_startup_jobs
 
         calls = []
 
@@ -201,7 +201,7 @@ class UiSchedulingTestCase(UiTestBase):
         window.accounts = []
 
         with (
-            patch("desktop_py.ui.main_window_actions_impl.random.randint", return_value=12345678) as mock_randint,
+            patch("desktop_py.ui.schedule_actions.random.randint", return_value=12345678) as mock_randint,
             patch("desktop_py.ui.main_window.save_schedule_state"),
         ):
             window._apply_auto_renew_schedule()
