@@ -10,7 +10,10 @@ from desktop_py.core.store import write_account_output_json, write_account_outpu
 
 def _redact_output_value(value: Any) -> Any:
     if isinstance(value, dict):
-        return {key: _redact_output_value(item) for key, item in value.items()}
+        return {
+            key: ("***" if key == "token" else _redact_output_value(item))
+            for key, item in value.items()
+        }
     if isinstance(value, list):
         return [_redact_output_value(item) for item in value]
     if isinstance(value, str):
