@@ -31,6 +31,7 @@ from desktop_py.core.fetcher_page_strategy import (
     request_refund_list_page,
     resolve_frame_locator,
 )
+from desktop_py.core.fetcher_context import FetcherDeps
 from desktop_py.core.fetcher_pipeline import (
     fetch_account_impl,
     fetch_account_in_page_impl,
@@ -407,21 +408,8 @@ def _fetch_account_in_page(
     )
 
 
-def fetch_account(
-    account: AccountConfig,
-    wait_seconds: int,
-    headless: bool = True,
-    logger: Logger | None = None,
-    profile_dir: str = "",
-    is_cancelled: CancelCheck | None = None,
-) -> FetchResult:
-    return fetch_account_impl(
-        account,
-        wait_seconds,
-        headless=headless,
-        logger=logger,
-        profile_dir=profile_dir,
-        is_cancelled=is_cancelled,
+def _build_fetcher_deps() -> FetcherDeps:
+    return FetcherDeps(
         sync_playwright_fn=sync_playwright,
         path_exists_fn=Path.exists,
         validate_shared_browser_profile_dir_fn=validate_shared_browser_profile_dir,
@@ -468,6 +456,25 @@ def fetch_account(
     )
 
 
+def fetch_account(
+    account: AccountConfig,
+    wait_seconds: int,
+    headless: bool = True,
+    logger: Logger | None = None,
+    profile_dir: str = "",
+    is_cancelled: CancelCheck | None = None,
+) -> FetchResult:
+    return fetch_account_impl(
+        account,
+        wait_seconds,
+        _build_fetcher_deps(),
+        headless=headless,
+        logger=logger,
+        profile_dir=profile_dir,
+        is_cancelled=is_cancelled,
+    )
+
+
 def fetch_accounts_batch(
     accounts: list[AccountConfig],
     headless: bool = True,
@@ -478,51 +485,12 @@ def fetch_accounts_batch(
 ) -> list[FetchResult]:
     return fetch_accounts_batch_impl(
         accounts,
+        _build_fetcher_deps(),
         headless=headless,
         logger=logger,
         progress=progress,
         profile_dir=profile_dir,
         is_cancelled=is_cancelled,
-        sync_playwright_fn=sync_playwright,
-        path_exists_fn=Path.exists,
-        validate_shared_browser_profile_dir_fn=validate_shared_browser_profile_dir,
-        create_browser_context_fn=create_browser_context,
-        validate_account_state_fn=lambda current_account, logger=None, profile_dir="": validate_account_state_impl(
-            current_account,
-            logger=logger,
-            profile_dir=profile_dir,
-            sync_playwright_fn=sync_playwright,
-            path_exists_fn=Path.exists,
-            validate_shared_browser_profile_dir_fn=validate_shared_browser_profile_dir,
-            create_browser_context_fn=create_browser_context,
-            wait_for_url_contains_fn=wait_for_url_contains,
-            close_page_fn=_close_page,
-            close_context_and_browser_fn=_close_context_and_browser,
-            log_fn=_log,
-        ),
-        renew_account_state_fn=lambda current_account, logger=None, profile_dir="", headless=True: (
-            renew_account_state_impl(
-                current_account,
-                logger=logger,
-                profile_dir=profile_dir,
-                headless=headless,
-                sync_playwright_fn=sync_playwright,
-                path_exists_fn=Path.exists,
-                validate_shared_browser_profile_dir_fn=validate_shared_browser_profile_dir,
-                create_browser_context_fn=create_browser_context,
-                wait_for_url_contains_fn=wait_for_url_contains,
-                wait_or_cancel_fn=wait_or_cancel,
-                close_page_fn=_close_page,
-                close_context_and_browser_fn=_close_context_and_browser,
-                log_fn=_log,
-            )
-        ),
-        fetch_account_in_page_fn=_fetch_account_in_page,
-        acquire_group_runtime_fn=acquire_group_runtime,
-        release_group_runtime_fn=release_group_runtime,
-        invalidate_group_runtime_fn=invalidate_group_runtime,
-        update_runtime_current_account_name_fn=update_runtime_current_account_name,
-        should_invalidate_runtime_fn=should_invalidate_runtime,
     )
 
 

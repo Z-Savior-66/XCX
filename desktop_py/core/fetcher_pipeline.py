@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from desktop_py.core.fetcher_batch_runner import run_fetch_accounts_batch
 from desktop_py.core.fetcher_common import CancelCheck, Logger
-from desktop_py.core.fetcher_context import PipelineContext
+from desktop_py.core.fetcher_context import FetcherDeps, PipelineContext
 from desktop_py.core.fetcher_diagnostics import (
     compose_fetch_result,
     default_notification_outcome,
@@ -715,33 +715,20 @@ def fetch_account_in_page_impl(
 def fetch_account_impl(
     account: AccountConfig,
     wait_seconds: int,
+    deps: FetcherDeps,
     headless: bool = True,
     logger: Logger | None = None,
     profile_dir: str = "",
     is_cancelled: CancelCheck | None = None,
-    *,
-    sync_playwright_fn: Callable[..., Any],
-    path_exists_fn: Callable[[Path], bool],
-    validate_shared_browser_profile_dir_fn: Callable[[str], str],
-    create_browser_context_fn: Callable[..., tuple[Any | None, Any]],
-    validate_account_state_fn: Callable[..., bool],
-    renew_account_state_fn: Callable[..., bool],
-    fetch_account_in_page_fn: Callable[..., FetchResult],
-    acquire_group_runtime_fn: Callable[..., Any],
-    release_group_runtime_fn: Callable[[Any], None],
-    invalidate_group_runtime_fn: Callable[..., None],
-    runtime_current_account_name_fn: Callable[[Any], str],
-    update_runtime_current_account_name_fn: Callable[[Any, str], None],
-    should_invalidate_runtime_fn: Callable[[Exception], bool],
 ) -> FetchResult:
     normalized_profile_dir = normalize_profile_dir(
         profile_dir,
-        validate_shared_browser_profile_dir_fn=validate_shared_browser_profile_dir_fn,
+        validate_shared_browser_profile_dir_fn=deps.validate_shared_browser_profile_dir_fn,
     )
     ensure_account_session_available(
         account,
         normalized_profile_dir,
-        path_exists_fn=path_exists_fn,
+        path_exists_fn=deps.path_exists_fn,
         error_cls=FetchError,
     )
     _prepare_account_session_for_fetch(
@@ -750,23 +737,23 @@ def fetch_account_impl(
         profile_dir=normalized_profile_dir,
         headless=headless,
         log_fn=lambda current_logger, message: current_logger(message) if current_logger else None,
-        validate_account_state_fn=validate_account_state_fn,
-        renew_account_state_fn=renew_account_state_fn,
+        validate_account_state_fn=deps.validate_account_state_fn,
+        renew_account_state_fn=deps.renew_account_state_fn,
     )
 
-    runtime = acquire_group_runtime_fn(
+    runtime = deps.acquire_group_runtime_fn(
         account,
         headless=headless,
         profile_dir=normalized_profile_dir,
-        sync_playwright_fn=sync_playwright_fn,
-        create_browser_context_fn=create_browser_context_fn,
+        sync_playwright_fn=deps.sync_playwright_fn,
+        create_browser_context_fn=deps.create_browser_context_fn,
         logger=logger,
         is_cancelled=is_cancelled,
     )
     try:
-        if runtime_current_account_name_fn(runtime):
-            update_runtime_current_account_name_fn(runtime, runtime_current_account_name_fn(runtime))
-        result = fetch_account_in_page_fn(
+        if deps.runtime_current_account_name_fn(runtime):
+            deps.update_runtime_current_account_name_fn(runtime, deps.runtime_current_account_name_fn(runtime))
+        result = deps.fetch_account_in_page_fn(
             runtime.page,
             runtime.context,
             account,
@@ -775,41 +762,29 @@ def fetch_account_impl(
             is_cancelled,
         )
         if result.actual_account_name.strip():
-            update_runtime_current_account_name_fn(runtime, result.actual_account_name)
+            deps.update_runtime_current_account_name_fn(runtime, result.actual_account_name)
         record_runtime_success(runtime)
         return cast(FetchResult, result)
     except Exception as exc:
         record_runtime_failure(runtime, exc)
-        if should_invalidate_runtime_fn(exc):
-            invalidate_group_runtime_fn(runtime, str(exc))
+        if deps.should_invalidate_runtime_fn(exc):
+            deps.invalidate_group_runtime_fn(runtime, str(exc))
         else:
-            release_group_runtime_fn(runtime)
+            deps.release_group_runtime_fn(runtime)
         raise
     finally:
         if runtime.busy:
-            release_group_runtime_fn(runtime)
+            deps.release_group_runtime_fn(runtime)
 
 
 def fetch_accounts_batch_impl(
     accounts: list[AccountConfig],
+    deps: FetcherDeps,
     headless: bool = True,
     logger: Logger | None = None,
     progress: Callable[[FetchResult], None] | None = None,
     profile_dir: str = "",
     is_cancelled: CancelCheck | None = None,
-    *,
-    sync_playwright_fn: Callable[..., Any],
-    path_exists_fn: Callable[[Path], bool],
-    validate_shared_browser_profile_dir_fn: Callable[[str], str],
-    create_browser_context_fn: Callable[..., tuple[Any | None, Any]],
-    validate_account_state_fn: Callable[..., bool],
-    renew_account_state_fn: Callable[..., bool],
-    fetch_account_in_page_fn: Callable[..., FetchResult],
-    acquire_group_runtime_fn: Callable[..., Any],
-    release_group_runtime_fn: Callable[[Any], None],
-    invalidate_group_runtime_fn: Callable[..., None],
-    update_runtime_current_account_name_fn: Callable[[Any, str], None],
-    should_invalidate_runtime_fn: Callable[[Exception], bool],
     batch_runtime_refresh_every: int = BATCH_RUNTIME_REFRESH_EVERY,
 ) -> list[FetchResult]:
     return run_fetch_accounts_batch(
@@ -819,24 +794,24 @@ def fetch_accounts_batch_impl(
         progress=progress,
         profile_dir=profile_dir,
         is_cancelled=is_cancelled,
-        sync_playwright_fn=sync_playwright_fn,
-        path_exists_fn=path_exists_fn,
-        validate_shared_browser_profile_dir_fn=validate_shared_browser_profile_dir_fn,
-        create_browser_context_fn=create_browser_context_fn,
+        sync_playwright_fn=deps.sync_playwright_fn,
+        path_exists_fn=deps.path_exists_fn,
+        validate_shared_browser_profile_dir_fn=deps.validate_shared_browser_profile_dir_fn,
+        create_browser_context_fn=deps.create_browser_context_fn,
         prepare_account_session_fn=lambda account, logger, profile_dir, headless: _prepare_account_session_for_fetch(
             account,
             logger=logger,
             profile_dir=profile_dir,
             headless=headless,
             log_fn=lambda current_logger, message: current_logger(message) if current_logger else None,
-            validate_account_state_fn=validate_account_state_fn,
-            renew_account_state_fn=renew_account_state_fn,
+            validate_account_state_fn=deps.validate_account_state_fn,
+            renew_account_state_fn=deps.renew_account_state_fn,
         ),
-        fetch_account_in_page_fn=fetch_account_in_page_fn,
-        acquire_group_runtime_fn=acquire_group_runtime_fn,
-        invalidate_group_runtime_fn=invalidate_group_runtime_fn,
-        update_runtime_current_account_name_fn=update_runtime_current_account_name_fn,
-        should_invalidate_runtime_fn=should_invalidate_runtime_fn,
+        fetch_account_in_page_fn=deps.fetch_account_in_page_fn,
+        acquire_group_runtime_fn=deps.acquire_group_runtime_fn,
+        invalidate_group_runtime_fn=deps.invalidate_group_runtime_fn,
+        update_runtime_current_account_name_fn=deps.update_runtime_current_account_name_fn,
+        should_invalidate_runtime_fn=deps.should_invalidate_runtime_fn,
         write_batch_diagnostic_index_safely_fn=write_batch_diagnostic_index_safely,
         batch_runtime_refresh_every=batch_runtime_refresh_every,
     )

@@ -1,3 +1,4 @@
+from desktop_py.core.fetcher_context import FetcherDeps
 from desktop_py.core.fetcher_support import FetchError, FetchErrorCode
 from py_tests.fetcher_test_support import (
     AccountConfig,
@@ -1402,8 +1403,7 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
         def fetch_account_in_page(*_args, **_kwargs):
             raise RuntimeError("target page, context or browser has been closed")
 
-        results = fetch_accounts_batch_impl(
-            accounts,
+        deps = FetcherDeps(
             sync_playwright_fn=lambda: None,
             path_exists_fn=lambda _path: True,
             validate_shared_browser_profile_dir_fn=lambda value: value,
@@ -1414,9 +1414,11 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
             acquire_group_runtime_fn=acquire_runtime,
             release_group_runtime_fn=lambda _runtime: None,
             invalidate_group_runtime_fn=invalidate_runtime,
+            runtime_current_account_name_fn=lambda _runtime: "",
             update_runtime_current_account_name_fn=lambda _runtime, _name: None,
             should_invalidate_runtime_fn=lambda _exc: True,
         )
+        results = fetch_accounts_batch_impl(accounts, deps)
 
         self.assertEqual(acquire_calls, 1)
         self.assertEqual(len(invalidated_messages), 1)
@@ -1458,8 +1460,7 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
                 raise RuntimeError("target page, context or browser has been closed")
             return FetchResult(account_name=account.name, ok=True, actual_account_name=account.name)
 
-        results = fetch_accounts_batch_impl(
-            accounts,
+        deps = FetcherDeps(
             sync_playwright_fn=lambda: None,
             path_exists_fn=lambda _path: True,
             validate_shared_browser_profile_dir_fn=lambda value: value,
@@ -1470,9 +1471,11 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
             acquire_group_runtime_fn=acquire_runtime,
             release_group_runtime_fn=lambda _runtime: None,
             invalidate_group_runtime_fn=invalidate_runtime,
+            runtime_current_account_name_fn=lambda _runtime: "",
             update_runtime_current_account_name_fn=lambda _runtime, _name: None,
             should_invalidate_runtime_fn=lambda _exc: True,
         )
+        results = fetch_accounts_batch_impl(accounts, deps)
 
         self.assertEqual(acquire_calls, 2)
         self.assertEqual(len(results), 2)

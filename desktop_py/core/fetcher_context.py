@@ -10,6 +10,25 @@ from desktop_py.core.models import AccountConfig, FetchResult
 
 
 @dataclass(frozen=True)
+class FetcherDeps:
+    """Groups all dependency injection callbacks for fetcher pipeline functions."""
+
+    sync_playwright_fn: Callable[..., Any]
+    path_exists_fn: Callable[[Path], bool]
+    validate_shared_browser_profile_dir_fn: Callable[[str], str]
+    create_browser_context_fn: Callable[..., tuple[Any | None, Any]]
+    validate_account_state_fn: Callable[..., bool]
+    renew_account_state_fn: Callable[..., bool]
+    fetch_account_in_page_fn: Callable[..., FetchResult]
+    acquire_group_runtime_fn: Callable[..., Any]
+    release_group_runtime_fn: Callable[[Any], None]
+    invalidate_group_runtime_fn: Callable[..., None]
+    runtime_current_account_name_fn: Callable[[Any], str]
+    update_runtime_current_account_name_fn: Callable[[Any, str], None]
+    should_invalidate_runtime_fn: Callable[[Exception], bool]
+
+
+@dataclass(frozen=True)
 class PipelineContext:
     account_output_dir_fn: Callable[[str], Path]
     register_response_capture_fn: Callable[..., tuple[list[Any], Callable[[], None]]]
