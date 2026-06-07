@@ -23,6 +23,10 @@ function Resolve-InnoCompilerPath {
         [string]$ProjectRoot
     )
 
+    $compilerPath = Join-Path $ProjectRoot "tools\inno\portable\ISCC.exe"
+    if (Test-Path $compilerPath) {
+        return $compilerPath
+    }
     $compilerPath = Join-Path $ProjectRoot "tools\inno\ISCC.exe"
     if (Test-Path $compilerPath) {
         return $compilerPath
@@ -154,8 +158,11 @@ try {
     }
     New-Item -ItemType Directory -Path $installerSourceRoot -Force | Out-Null
 
+    $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
+    $pythonExe = if (Test-Path $venvPython) { $venvPython } else { "python" }
+
     Write-Host "开始构建安装包..."
-    python -m PyInstaller `
+    & $pythonExe -m PyInstaller `
         --noconfirm `
         --clean `
         --windowed `
@@ -214,7 +221,6 @@ try {
         Copy-Item -LiteralPath $offlineRuntimeSource -Destination $offlineRuntimeTarget -Recurse -Force
     }
 
-    # 使用 ASCII 临时路径避免 Inno Setup 中文路径解析问题
     $tempBuildRoot = Join-Path $env:TEMP "xcx_build"
     if (Test-Path $tempBuildRoot) {
         Remove-Item -LiteralPath $tempBuildRoot -Recurse -Force
@@ -224,7 +230,6 @@ try {
     $tempAppIconPath = Join-Path $tempBuildRoot "app_icon.ico"
     Copy-Item -LiteralPath $appIconPath -Destination $tempAppIconPath -Force
 
-    # ISCC 6.7.3 不支持 /D 参数，改用临时 ISS 文件注入 #define
     $issContent = Get-Content -LiteralPath $installerScript -Raw
     $defines = @"
 #define MyAppName "$appName"
