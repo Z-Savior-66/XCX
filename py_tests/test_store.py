@@ -671,5 +671,31 @@ class StoreTestCase(unittest.TestCase):
         self.assertTrue(fresh_responses_exists)
 
 
+class AccountOutputFileSecurityTestCase(unittest.TestCase):
+    def test_rejects_path_traversal_in_filename(self):
+        from desktop_py.core.store import account_output_file
+
+        with self.assertRaises(ValueError):
+            account_output_file("test", "../etc/passwd")
+
+    def test_rejects_parent_directory_in_filename(self):
+        from desktop_py.core.store import account_output_file
+
+        with self.assertRaises(ValueError):
+            account_output_file("test", "..\\secret.txt")
+
+    def test_rejects_absolute_path_in_filename(self):
+        from desktop_py.core.store import account_output_file
+
+        with self.assertRaises(ValueError):
+            account_output_file("test", "C:\\Windows\\System32\\cmd.exe")
+
+    def test_accepts_normal_filename(self):
+        from desktop_py.core.store import account_output_file
+
+        result = account_output_file("test", "result.json")
+        self.assertTrue(str(result).endswith("result.json"))
+
+
 if __name__ == "__main__":
     unittest.main()

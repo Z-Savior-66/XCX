@@ -379,6 +379,8 @@ def account_output_dir(account_name: str) -> Path:
 
 
 def account_output_file(account_name: str, filename: str) -> Path:
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise ValueError(f"文件名包含非法字符：{filename}")
     return account_output_dir(account_name) / filename
 
 
