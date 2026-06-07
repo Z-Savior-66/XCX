@@ -53,7 +53,9 @@ def save_current_settings(
     window.append_log("设置已保存。")
 
 
-def choose_profile_dir(window: MainWindowProtocol, *, file_dialog: Any, prepare_shared_browser_profile_dir_fn: Any) -> None:
+def choose_profile_dir(
+    window: MainWindowProtocol, *, file_dialog: Any, prepare_shared_browser_profile_dir_fn: Any
+) -> None:
     target = file_dialog.getExistingDirectory(window, "选择共享浏览器资料目录", window.profile_dir_edit.text().strip())
     if target:
         try:
@@ -64,7 +66,9 @@ def choose_profile_dir(window: MainWindowProtocol, *, file_dialog: Any, prepare_
         window.profile_dir_edit.setText(profile_dir)
 
 
-def add_account(window: MainWindowProtocol, *, account_dialog_cls: Any, default_state_path_fn: Any, save_accounts_fn: Any) -> None:
+def add_account(
+    window: MainWindowProtocol, *, account_dialog_cls: Any, default_state_path_fn: Any, save_accounts_fn: Any
+) -> None:
     dialog = account_dialog_cls(parent=window)
     if dialog.exec() != dialog.DialogCode.Accepted:
         return
@@ -85,7 +89,9 @@ def add_account(window: MainWindowProtocol, *, account_dialog_cls: Any, default_
     window.append_log("账号已新增。")
 
 
-def edit_account(window: MainWindowProtocol, *, account_dialog_cls: Any, default_state_path_fn: Any, save_accounts_fn: Any) -> None:
+def edit_account(
+    window: MainWindowProtocol, *, account_dialog_cls: Any, default_state_path_fn: Any, save_accounts_fn: Any
+) -> None:
     account = window.selected_account()
     if not account:
         window._show_info("提示", "请先选择一个账号。")
@@ -136,7 +142,9 @@ def edit_account(window: MainWindowProtocol, *, account_dialog_cls: Any, default
     window.append_log("账号已更新。")
 
 
-def import_accounts(window: MainWindowProtocol, *, fetch_switchable_accounts_fn: Any, save_accounts_fn: Any | None = None) -> None:
+def import_accounts(
+    window: MainWindowProtocol, *, fetch_switchable_accounts_fn: Any, save_accounts_fn: Any | None = None
+) -> None:
     base_account = window.selected_account()
     if not base_account:
         window._show_info("提示", "请先选择一个已登录的账号作为读取入口。")

@@ -337,5 +337,4 @@ def should_invalidate_runtime(exc: Exception) -> bool:
     return any(token in message for token in fatal_tokens)
 
 
-
 atexit.register(close_all_group_runtimes)

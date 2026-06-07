@@ -15,7 +15,7 @@ from desktop_py.core.file_io import read_json_file
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value or default)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 
@@ -65,7 +65,7 @@ class AppInstanceLock:
     def release(self) -> None:
         try:
             payload = read_json_file(self.path)
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             return
         if not isinstance(payload, dict):
             return
@@ -99,7 +99,7 @@ def acquire_app_instance_lock(
         except FileExistsError:
             try:
                 existing_payload = read_json_file(lock_path)
-            except (OSError, json.JSONDecodeError):
+            except OSError, json.JSONDecodeError:
                 existing_payload = {}
             if _lock_payload_is_active(
                 existing_payload,

@@ -117,7 +117,9 @@ def mark_fetch_result(
         window.refresh_table()
 
 
-def mark_batch_results(window: MainWindowProtocol, results: list, *, apply_batch_fetch_results_fn: Any, save_accounts_fn: Any) -> None:
+def mark_batch_results(
+    window: MainWindowProtocol, results: list, *, apply_batch_fetch_results_fn: Any, save_accounts_fn: Any
+) -> None:
     latest_actual_account_name = apply_batch_fetch_results_fn(window.accounts, results)
     window.refresh_table()
     try:

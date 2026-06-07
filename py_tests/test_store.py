@@ -700,16 +700,19 @@ class AccountOutputFileSecurityTestCase(unittest.TestCase):
 class HomeUrlValidationTestCase(unittest.TestCase):
     def test_allows_default_wechat_url(self):
         from desktop_py.core.models import AccountConfig
+
         account = AccountConfig(name="test", state_path="")
         self.assertEqual(account.home_url, "https://mp.weixin.qq.com/")
 
     def test_rejects_non_wechat_domain(self):
         from desktop_py.core.models import validate_home_url
+
         with self.assertRaises(ValueError):
             validate_home_url("https://evil.com/phishing")
 
     def test_rejects_empty_url(self):
         from desktop_py.core.models import validate_home_url
+
         with self.assertRaises(ValueError):
             validate_home_url("")
 

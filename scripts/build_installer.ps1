@@ -214,16 +214,50 @@ try {
         Copy-Item -LiteralPath $offlineRuntimeSource -Destination $offlineRuntimeTarget -Recurse -Force
     }
 
-    & $innoCompiler `
-        "/DMySourceDir=$installerSourceDir" `
-        "/DMyAppExeName=$installerExeName" `
-        "/DMyOutputBaseFilename=$outputBaseFilename" `
-        "/DMyAppIconPath=$appIconPath" `
-        "/DMyAppVersion=$appVersion" `
-        "/DMyAppPublisher=$appPublisher" `
-        $installerScript
+    # 使用 ASCII 临时路径避免 Inno Setup 中文路径解析问题
+    $tempBuildRoot = Join-Path $env:TEMP "xcx_build"
+    if (Test-Path $tempBuildRoot) {
+        Remove-Item -LiteralPath $tempBuildRoot -Recurse -Force
+    }
+    $tempSourceDir = Join-Path $tempBuildRoot "app"
+    Copy-Item -LiteralPath $installerSourceDir -Destination $tempSourceDir -Recurse -Force
+    $tempAppIconPath = Join-Path $tempBuildRoot "app_icon.ico"
+    Copy-Item -LiteralPath $appIconPath -Destination $tempAppIconPath -Force
+
+    # ISCC 6.7.3 不支持 /D 参数，改用临时 ISS 文件注入 #define
+    $issContent = Get-Content -LiteralPath $installerScript -Raw
+    $defines = @"
+#define MyAppName "$appName"
+#define MyAppVersion "$appVersion"
+#define MyAppPublisher "$appPublisher"
+#define MyAppExeName "$installerExeName"
+#define MySourceDir "$tempSourceDir"
+#define MyOutputBaseFilename "$outputBaseFilename"
+#define MyAppIconPath "$tempAppIconPath"
+
+"@
+    $tempIssScript = Join-Path $tempBuildRoot "installer.iss"
+    Write-Utf8NoBomFile -Path $tempIssScript -Content ($defines + $issContent)
+
+    Push-Location $tempBuildRoot
+    try {
+        & $innoCompiler $tempIssScript
+    } finally {
+        Pop-Location
+    }
+    Remove-Item -LiteralPath $tempBuildRoot -Recurse -Force -ErrorAction SilentlyContinue
     if (Test-Path $installerSourceRoot) {
         Remove-Item -LiteralPath $installerSourceRoot -Recurse -Force
+    }
+    # 将临时目录的输出复制回项目 dist 目录
+    $tempInstallerDir = Join-Path $env:TEMP "dist\installer"
+    $projectInstallerDir = Join-Path $distRoot "installer"
+    if (Test-Path $tempInstallerDir) {
+        if (-not (Test-Path $projectInstallerDir)) {
+            New-Item -ItemType Directory -Path $projectInstallerDir -Force | Out-Null
+        }
+        Copy-Item -LiteralPath (Join-Path $tempInstallerDir "$outputBaseFilename.exe") -Destination $projectInstallerDir -Force
+        Remove-Item -LiteralPath (Join-Path $env:TEMP "dist") -Recurse -Force -ErrorAction SilentlyContinue
     }
     if ($IncludeOfflineChromium) {
         Write-Host "离线版安装包构建完成：$(Join-Path $distRoot "installer\$outputBaseFilename.exe")"

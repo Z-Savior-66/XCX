@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import queue
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -38,14 +37,16 @@ class TaskThreadUnitTestCase(unittest.TestCase):
 
         tasks = []
         for _ in range(3):
-            tasks.append(thread.enqueue(
-                job_builder=MagicMock(),
-                on_success=MagicMock(),
-                emit_log=False,
-                emit_failure_log=False,
-                update_status=False,
-                on_progress=None,
-            ))
+            tasks.append(
+                thread.enqueue(
+                    job_builder=MagicMock(),
+                    on_success=MagicMock(),
+                    emit_log=False,
+                    emit_failure_log=False,
+                    update_status=False,
+                    on_progress=None,
+                )
+            )
 
         self.assertEqual(tasks[0].task_id, 1)
         self.assertEqual(tasks[1].task_id, 2)
@@ -123,7 +124,7 @@ class TaskThreadUnitTestCase(unittest.TestCase):
         thread = TaskThread()
 
         captured_active_tasks: list[QueuedTask | None] = []
-        original_run = TaskThread.run
+        TaskThread.run
 
         def patched_run(self_thread):
             # Override the queue get to let us inspect _active_task

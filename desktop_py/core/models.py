@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 SESSION_STATUS_MISSING = "missing"
 SESSION_STATUS_VALID = "valid"
@@ -68,8 +69,6 @@ class ScheduleState:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
-
-from urllib.parse import urlparse
 
 ALLOWED_HOME_URL_DOMAINS = ("mp.weixin.qq.com",)
 

@@ -8,6 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from PySide6.QtWidgets import QApplication
+
     _HAS_QT = True
 except ImportError:
     _HAS_QT = False
@@ -69,6 +70,7 @@ class MessageDialogSmokeTestCase(unittest.TestCase):
 
     def test_dialog_has_frameless_hint(self):
         from PySide6.QtCore import Qt
+
         dialog = MessageDialog("无边框", "内容")
         self.assertTrue(dialog.windowFlags() & Qt.WindowType.FramelessWindowHint)
         dialog.close()
@@ -82,6 +84,7 @@ class MessageDialogSmokeTestCase(unittest.TestCase):
 def _make_parent():
     """Create a lightweight parent widget for dialog tests."""
     from PySide6.QtWidgets import QWidget
+
     parent = QWidget()
     parent.setWindowTitle("test_parent")
     return parent

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 from desktop_py.core.models import (
     SESSION_SOURCE_PROFILE,
@@ -15,8 +15,6 @@ from desktop_py.core.models import (
     AccountConfig,
 )
 from desktop_py.core.session_probe import (
-    BACKEND_SESSION_CONTENT_KEYWORDS,
-    BACKEND_SESSION_URL_KEYWORDS,
     SESSION_STALE_AFTER,
     SessionVerification,
     _extract_account_name_from_html,
@@ -265,10 +263,7 @@ class VerifyBackendSessionTestCase(unittest.TestCase):
     @patch("desktop_py.core.session_probe.is_login_timeout_page", return_value=False)
     def test_extracts_feedback_url_when_backend_session_url_detected(self, mock_timeout, mock_content):
         page = MagicMock()
-        page.url = (
-            "https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback"
-            "?token=abc123&lang=zh_CN"
-        )
+        page.url = "https://mp.weixin.qq.com/wxamp/frame/pluginRedirect/gameFeedback?token=abc123&lang=zh_CN"
         mock_content.return_value = '{"nickName":"测试"}'
         result = verify_backend_session(page)
         self.assertTrue(result.valid)

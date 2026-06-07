@@ -68,7 +68,9 @@ def _persist_schedule_state(
     )
 
 
-def apply_auto_fetch_push_schedule(window: MainWindowProtocol, *, save_schedule_state_fn: Any = None, now_fn: Any = None) -> None:
+def apply_auto_fetch_push_schedule(
+    window: MainWindowProtocol, *, save_schedule_state_fn: Any = None, now_fn: Any = None
+) -> None:
     window._auto_fetch_timer.stop()
     if not window.settings.auto_fetch_push_enabled:
         _persist_schedule_state(
@@ -91,7 +93,9 @@ def apply_auto_fetch_push_schedule(window: MainWindowProtocol, *, save_schedule_
     )
 
 
-def milliseconds_until_next_auto_fetch_push(window: MainWindowProtocol, now: Any = None, *, next_interval_fn: Any) -> int:
+def milliseconds_until_next_auto_fetch_push(
+    window: MainWindowProtocol, now: Any = None, *, next_interval_fn: Any
+) -> int:
     return int(next_interval_fn(now))
 
 

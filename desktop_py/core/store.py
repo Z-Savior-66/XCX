@@ -11,22 +11,22 @@ from pathlib import Path
 from typing import Any, cast
 
 from desktop_py.core.app_lock import (
-    AppInstanceLock,
     RUNNING_INSTANCE_LOCK_STALE_SECONDS,
+    AppInstanceLock,
+)
+from desktop_py.core.app_lock import (
     acquire_app_instance_lock as _acquire_app_instance_lock_impl,
 )
 from desktop_py.core.file_io import (
-    _backup_corrupt_json_file,
     _read_json_file_or_recover,
     _write_text_atomic,
     read_json_file,
 )
 from desktop_py.core.models import AccountConfig, AppSettings, FetchResult, ScheduleState
 from desktop_py.core.profile_validation import (
-    BROWSER_PROFILE_LOCK_FILES,
-    SHARED_BROWSER_PROFILE_DIR_NAME,
-    prepare_shared_browser_profile_dir,
-    validate_shared_browser_profile_dir,
+    SHARED_BROWSER_PROFILE_DIR_NAME,  # noqa: F401
+    prepare_shared_browser_profile_dir,  # noqa: F401
+    validate_shared_browser_profile_dir,  # noqa: F401
 )
 
 APP_NAME = "小程序工具"
@@ -145,7 +145,7 @@ def _schedule_state_from_mapping(raw: dict[str, Any]) -> ScheduleState:
 def _legacy_schedule_state_from_settings() -> ScheduleState:
     try:
         raw = read_json_file(SETTINGS_FILE)
-    except (OSError, json.JSONDecodeError):
+    except OSError, json.JSONDecodeError:
         return ScheduleState()
     if not isinstance(raw, dict):
         return ScheduleState()
@@ -252,7 +252,7 @@ def load_blocked_account_names() -> set[str]:
     try:
         _ensure_blocked_accounts_file()
         data = cast(list[str], _read_json_file_or_recover(BLOCKED_ACCOUNTS_FILE, "[]\n"))
-    except (OSError, json.JSONDecodeError, TypeError):
+    except OSError, json.JSONDecodeError, TypeError:
         return set()
     if not isinstance(data, list):
         return set()

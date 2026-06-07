@@ -77,9 +77,9 @@ class BuildInstallerScriptTestCase(unittest.TestCase):
         self.assertIn("$appVersion = Resolve-AppVersion -ProjectRoot $projectRoot", content)
         self.assertNotIn('$appVersion = "1.0.0"', content)
         self.assertIn('$appPublisher = "本地构建"', content)
-        self.assertIn('"/DMyAppVersion=$appVersion"', content)
-        self.assertIn('"/DMyAppPublisher=$appPublisher"', content)
-        self.assertIn('"/DMyAppIconPath=$appIconPath"', content)
+        self.assertIn('#define MyAppVersion "$appVersion"', content)
+        self.assertIn('#define MyAppPublisher "$appPublisher"', content)
+        self.assertIn('#define MyAppIconPath "$tempAppIconPath"', content)
         self.assertIn("--icon $appIconPath", content)
         self.assertIn('--add-data "$appAssetsPath;assets"', content)
 

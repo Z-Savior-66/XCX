@@ -68,7 +68,9 @@ def renew_switch_account_names(window: MainWindowProtocol, account: Any) -> list
     return names
 
 
-def login_selected(window: MainWindowProtocol, *, save_login_state_with_profile_fn: Any, save_login_state_fn: Any) -> None:
+def login_selected(
+    window: MainWindowProtocol, *, save_login_state_with_profile_fn: Any, save_login_state_fn: Any
+) -> None:
     account = window.selected_account()
     if not account:
         window._show_info("提示", "请先选择一个账号。")
@@ -93,7 +95,12 @@ def login_selected(window: MainWindowProtocol, *, save_login_state_with_profile_
 
 
 def mark_login(
-    window: MainWindowProtocol, account: Any, *, datetime_cls: Any, save_accounts_fn: Any, close_all_group_runtimes_fn: Any = None
+    window: MainWindowProtocol,
+    account: Any,
+    *,
+    datetime_cls: Any,
+    save_accounts_fn: Any,
+    close_all_group_runtimes_fn: Any = None,
 ) -> None:
     account.last_login_at = datetime_cls.now().strftime("%Y-%m-%d %H:%M:%S")
     account.last_status = LOGIN_STATUS_SAVED
@@ -136,7 +143,9 @@ def validate_selected(window: MainWindowProtocol, *, validate_account_state_fn: 
     )
 
 
-def renew_selected(window: MainWindowProtocol, *, renew_account_state_fn: Any, close_all_group_runtimes_fn: Any = None) -> None:
+def renew_selected(
+    window: MainWindowProtocol, *, renew_account_state_fn: Any, close_all_group_runtimes_fn: Any = None
+) -> None:
     account = window.selected_account()
     if not account:
         window._show_info("提示", "请先选择一个账号。")

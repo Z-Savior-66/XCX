@@ -1,4 +1,5 @@
 import pytest
+
 from desktop_py.core.fetcher_runtime import close_all_group_runtimes
 
 
@@ -21,7 +22,9 @@ def tmp_accounts_file(tmp_path):
 def tmp_settings_file(tmp_path):
     """提供临时的 settings.json 路径。"""
     import json
+
     from desktop_py.core.models import AppSettings
+
     path = tmp_path / "settings.json"
     path.write_text(
         json.dumps(AppSettings().to_dict(), ensure_ascii=False, indent=2) + "\n",

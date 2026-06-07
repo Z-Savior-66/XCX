@@ -162,7 +162,7 @@ def fetch_error_code(error: BaseException) -> str:
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value or default)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 

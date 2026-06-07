@@ -613,5 +613,3 @@ def build_detail_result(
     )
     write_fetch_result(account.name, result)
     return result
-
-

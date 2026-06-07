@@ -7,23 +7,24 @@ from unittest.mock import MagicMock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PySide6.QtWidgets import QApplication, QMainWindow, QWidget
+    from PySide6.QtWidgets import QApplication, QMainWindow
+
     _HAS_QT = True
 except ImportError:
     _HAS_QT = False
 
 if _HAS_QT:
+    from desktop_py.core.models import AccountConfig
     from desktop_py.ui.main_window_view import (
-        append_log,
-        refresh_summary_cards,
-        set_status_text,
-        should_show_runtime_log_message,
-        format_runtime_log_message,
         _account_name_log_range,
         _format_account_result_block,
         _normalize_account_result_detail,
+        append_log,
+        format_runtime_log_message,
+        refresh_summary_cards,
+        set_status_text,
+        should_show_runtime_log_message,
     )
-    from desktop_py.core.models import AccountConfig, AppSettings
 
 
 def _ensure_app():
@@ -37,13 +38,13 @@ def _ensure_app():
 
 @unittest.skipUnless(_HAS_QT, "PySide6 not available")
 class SetStatusTextTestCase(unittest.TestCase):
-
     @classmethod
     def setUpClass(cls):
         cls.app = _ensure_app()
 
     def test_set_status_text_updates_label(self):
         from PySide6.QtWidgets import QLabel
+
         window = QMainWindow()
         window._status_label = QLabel("当前状态：就绪")
 
@@ -63,13 +64,13 @@ class SetStatusTextTestCase(unittest.TestCase):
 
 @unittest.skipUnless(_HAS_QT, "PySide6 not available")
 class AppendLogTestCase(unittest.TestCase):
-
     @classmethod
     def setUpClass(cls):
         cls.app = _ensure_app()
 
     def test_append_log_adds_text(self):
         from PySide6.QtWidgets import QPlainTextEdit
+
         window = MagicMock()
         window.log_edit = QPlainTextEdit()
 
@@ -80,6 +81,7 @@ class AppendLogTestCase(unittest.TestCase):
 
     def test_append_log_skips_process_prefix_messages(self):
         from PySide6.QtWidgets import QPlainTextEdit
+
         window = MagicMock()
         window.log_edit = QPlainTextEdit()
 
@@ -90,6 +92,7 @@ class AppendLogTestCase(unittest.TestCase):
 
     def test_append_log_skips_current_account_prefix(self):
         from PySide6.QtWidgets import QPlainTextEdit
+
         window = MagicMock()
         window.log_edit = QPlainTextEdit()
 
@@ -100,6 +103,7 @@ class AppendLogTestCase(unittest.TestCase):
 
     def test_append_log_skips_empty_message(self):
         from PySide6.QtWidgets import QPlainTextEdit
+
         window = MagicMock()
         window.log_edit = QPlainTextEdit()
 
@@ -181,7 +185,6 @@ class FormatAccountResultBlockTestCase(unittest.TestCase):
 
 @unittest.skipUnless(_HAS_QT, "PySide6 not available")
 class RefreshSummaryCardsTestCase(unittest.TestCase):
-
     @classmethod
     def setUpClass(cls):
         cls.app = _ensure_app()
@@ -191,8 +194,22 @@ class RefreshSummaryCardsTestCase(unittest.TestCase):
 
         window = MagicMock()
         imported = [
-            AccountConfig(name="a1", state_path="/a1", is_entry_account=False, enabled=True, last_status="抓取成功", last_fetch_at="2024-01-01"),
-            AccountConfig(name="a2", state_path="/a2", is_entry_account=False, enabled=False, last_status="抓取失败", last_fetch_at="2024-01-02"),
+            AccountConfig(
+                name="a1",
+                state_path="/a1",
+                is_entry_account=False,
+                enabled=True,
+                last_status="抓取成功",
+                last_fetch_at="2024-01-01",
+            ),
+            AccountConfig(
+                name="a2",
+                state_path="/a2",
+                is_entry_account=False,
+                enabled=False,
+                last_status="抓取失败",
+                last_fetch_at="2024-01-02",
+            ),
             AccountConfig(name="entry", state_path="/entry", is_entry_account=True, enabled=True),
         ]
         window.accounts = imported
