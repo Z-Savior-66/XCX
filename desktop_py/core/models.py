@@ -69,6 +69,22 @@ class ScheduleState:
         return asdict(self)
 
 
+from urllib.parse import urlparse
+
+ALLOWED_HOME_URL_DOMAINS = ("mp.weixin.qq.com",)
+
+
+def validate_home_url(url: str) -> str:
+    url = url.strip()
+    if not url:
+        raise ValueError("首页地址不能为空。")
+    parsed = urlparse(url)
+    host = (parsed.netloc or "").lower()
+    if not any(host == domain or host.endswith("." + domain) for domain in ALLOWED_HOME_URL_DOMAINS):
+        raise ValueError(f"首页地址仅允许微信后台域名（{', '.join(ALLOWED_HOME_URL_DOMAINS)}）。")
+    return url
+
+
 @dataclass
 class FetchResult:
     account_name: str
