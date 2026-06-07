@@ -4,28 +4,34 @@ import json
 import os
 import stat
 import sys
-import tempfile
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, fields
+from dataclasses import fields
 from pathlib import Path
 from typing import Any, cast
 
-from desktop_py.core.fetcher_common import _safe_int
+from desktop_py.core.app_lock import (
+    AppInstanceLock,
+    RUNNING_INSTANCE_LOCK_STALE_SECONDS,
+    acquire_app_instance_lock as _acquire_app_instance_lock_impl,
+)
+from desktop_py.core.file_io import (
+    _backup_corrupt_json_file,
+    _read_json_file_or_recover,
+    _write_text_atomic,
+    read_json_file,
+)
 from desktop_py.core.models import AccountConfig, AppSettings, FetchResult, ScheduleState
+from desktop_py.core.profile_validation import (
+    BROWSER_PROFILE_LOCK_FILES,
+    SHARED_BROWSER_PROFILE_DIR_NAME,
+    prepare_shared_browser_profile_dir,
+    validate_shared_browser_profile_dir,
+)
 
 APP_NAME = "小程序工具"
-SHARED_BROWSER_PROFILE_DIR_NAME = "browser_profile"
-BROWSER_PROFILE_LOCK_FILES = (
-    "SingletonLock",
-    "SingletonCookie",
-    "SingletonSocket",
-    "LOCK",
-    "lockfile",
-)
 ATOMIC_WRITE_REPLACE_ATTEMPTS = 5
 ATOMIC_WRITE_RETRY_DELAY_SECONDS = 0.1
-RUNNING_INSTANCE_LOCK_STALE_SECONDS = 24 * 60 * 60
 
 
 def runtime_root() -> Path:
@@ -69,220 +75,24 @@ DIAGNOSTIC_ARTIFACT_NAMES = frozenset(
 )
 
 
-@dataclass(frozen=True)
-class AppInstanceLock:
-    path: Path
-    pid: int
-    token: str
-
-    def release(self) -> None:
-        try:
-            payload = read_json_file(self.path)
-        except (OSError, json.JSONDecodeError):
-            return
-        if not isinstance(payload, dict):
-            return
-        if _safe_int(payload.get("pid", 0)) != self.pid or str(payload.get("token", "") or "") != self.token:
-            return
-        try:
-            self.path.unlink(missing_ok=True)
-        except OSError:
-            pass
-
-
-def read_json_file(path: Path) -> Any:
-    return json.loads(path.read_text(encoding="utf-8-sig"))
-
-
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        return float(value or default)
-    except (TypeError, ValueError):
-        return default
-
-
-def _backup_corrupt_json_file(path: Path) -> Path:
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
-    backup_path = path.with_name(f"{path.name}.{timestamp}.{time.time_ns()}.corrupt")
-    path.replace(backup_path)
-    return backup_path
-
-
-def _read_json_file_or_recover(path: Path, default_content: str) -> Any:
-    try:
-        return read_json_file(path)
-    except json.JSONDecodeError:
-        _backup_corrupt_json_file(path)
-        _write_text_atomic(path, default_content)
-        return json.loads(default_content)
-
-
-def _process_is_running(pid: int) -> bool:
-    if pid <= 0:
-        return False
-    if pid == os.getpid():
-        return True
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
-
-def _lock_payload_is_active(
-    payload: object,
-    *,
-    now: float,
-    stale_seconds: int,
-    process_running_fn: Callable[[int], bool],
-) -> bool:
-    if not isinstance(payload, dict):
-        return False
-    pid = _safe_int(payload.get("pid", 0))
-    if pid <= 0:
-        return False
-    if process_running_fn(pid):
-        return True
-    created_at = _safe_float(payload.get("created_at", 0))
-    if created_at <= 0:
-        return False
-    if now - created_at >= stale_seconds:
-        return False
-    return False
-
-
 def acquire_app_instance_lock(
     *,
     lock_path: Path = RUNNING_INSTANCE_LOCK_FILE,
     stale_seconds: int = RUNNING_INSTANCE_LOCK_STALE_SECONDS,
     process_id_fn: Callable[[], int] = os.getpid,
-    process_running_fn: Callable[[int], bool] = _process_is_running,
+    process_running_fn: Callable[[int], bool] | None = None,
     now_fn: Callable[[], float] = time.time,
 ) -> AppInstanceLock:
-    ensure_runtime_dirs()
-    token = str(time.time_ns())
-    pid = process_id_fn()
-    payload = {"pid": pid, "token": token, "created_at": now_fn()}
-    content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    for _attempt in range(2):
-        try:
-            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            try:
-                existing_payload = read_json_file(lock_path)
-            except (OSError, json.JSONDecodeError):
-                existing_payload = {}
-            if _lock_payload_is_active(
-                existing_payload,
-                now=now_fn(),
-                stale_seconds=stale_seconds,
-                process_running_fn=process_running_fn,
-            ):
-                raise RuntimeError("小程序工具已在运行，请先关闭现有窗口或托盘图标后再启动。") from None
-            try:
-                lock_path.unlink(missing_ok=True)
-            except OSError as exc:
-                raise RuntimeError(f"清理旧运行锁失败，请关闭现有程序后重试：{exc}") from exc
-            continue
-        with os.fdopen(fd, "w", encoding="utf-8") as lock_file:
-            lock_file.write(content)
-        return AppInstanceLock(lock_path, pid, token)
-    raise RuntimeError("小程序工具已在运行，请先关闭现有窗口或托盘图标后再启动。")
-
-
-def _write_text_atomic(path: Path, content: str, encoding: str = "utf-8") -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        if path.exists() and path.read_text(encoding=encoding) == content:
-            return
-    except FileNotFoundError:
-        pass
-    temp_path = ""
-    try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding=encoding,
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temp_file:
-            temp_path = temp_file.name
-            temp_file.write(content)
-            temp_file.flush()
-            os.fsync(temp_file.fileno())
-        for attempt in range(ATOMIC_WRITE_REPLACE_ATTEMPTS):
-            try:
-                Path(temp_path).replace(path)
-                break
-            except PermissionError:
-                if attempt == ATOMIC_WRITE_REPLACE_ATTEMPTS - 1:
-                    raise
-                time.sleep(ATOMIC_WRITE_RETRY_DELAY_SECONDS)
-        try:
-            path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
-    except Exception:
-        if temp_path:
-            try:
-                Path(temp_path).unlink(missing_ok=True)
-            except OSError:
-                pass
-        raise
-
-
-def validate_shared_browser_profile_dir(profile_dir: str) -> str:
-    value = profile_dir.strip()
-    if not value:
-        return ""
-
-    path = Path(value).expanduser()
-    if not path.exists():
-        raise ValueError("共享浏览器资料目录不存在，请选择已存在的目录。")
-    if not path.is_dir():
-        raise ValueError("共享浏览器资料目录必须是文件夹。")
-
-    resolved = path.resolve()
-    if _looks_like_default_browser_profile_dir(resolved):
-        raise ValueError("共享浏览器资料目录不能直接指向 Chrome 或 Edge 的默认用户资料目录，请改用专用自动化目录。")
-    if _has_browser_lock_markers(resolved):
-        raise ValueError("共享浏览器资料目录当前疑似正被浏览器占用，请先关闭相关浏览器后再使用。")
-    return str(resolved)
-
-
-def prepare_shared_browser_profile_dir(parent_dir: str) -> str:
-    value = parent_dir.strip()
-    if not value:
-        return ""
-
-    parent = Path(value).expanduser()
-    if parent.exists() and not parent.is_dir():
-        raise ValueError("共享浏览器资料父目录必须是文件夹。")
-
-    target = parent if parent.name == SHARED_BROWSER_PROFILE_DIR_NAME else parent / SHARED_BROWSER_PROFILE_DIR_NAME
-    target.mkdir(parents=True, exist_ok=True)
-    return validate_shared_browser_profile_dir(str(target))
-
-
-def _looks_like_default_browser_profile_dir(path: Path) -> bool:
-    name = path.name.lower()
-    parent_name = path.parent.name.lower()
-    if name == "user data" and (path / "Local State").exists():
-        return True
-    if parent_name == "user data" and (path / "Preferences").exists():
-        return True
-    return False
-
-
-def _has_browser_lock_markers(path: Path) -> bool:
-    if any((path / lock_name).exists() for lock_name in BROWSER_PROFILE_LOCK_FILES):
-        return True
-    parent = path.parent
-    if parent.name.lower() == "user data":
-        return any((parent / lock_name).exists() for lock_name in BROWSER_PROFILE_LOCK_FILES)
-    return False
+    kwargs: dict[str, Any] = {
+        "lock_path": lock_path,
+        "stale_seconds": stale_seconds,
+        "process_id_fn": process_id_fn,
+        "now_fn": now_fn,
+        "ensure_dirs_fn": ensure_runtime_dirs,
+    }
+    if process_running_fn is not None:
+        kwargs["process_running_fn"] = process_running_fn
+    return _acquire_app_instance_lock_impl(**kwargs)
 
 
 def ensure_runtime_dirs() -> None:
