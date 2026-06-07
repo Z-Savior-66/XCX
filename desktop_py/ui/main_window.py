@@ -285,6 +285,10 @@ class MainWindow(QMainWindow):
         )
         self._summary_labels: dict[str, QLabel] = {}
         self._status_label: QLabel | None = None
+        self.table: Any = None
+        self.log_edit: Any = None
+        self.webhook_edit: Any = None
+        self.profile_dir_edit: Any = None
         self.login_button: QPushButton | None = None
         self.renew_button: QPushButton | None = None
         self.edit_button: QPushButton | None = None

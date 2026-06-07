@@ -4,10 +4,11 @@ from typing import Any
 
 from desktop_py.core.models import AccountConfig
 from desktop_py.core.session_links import normalize_group_feedback_urls
+from desktop_py.ui.protocols import MainWindowProtocol
 
 
 def initialize_window_state(
-    window: Any,
+    window: MainWindowProtocol,
     *,
     ensure_runtime_dirs_fn: Any,
     load_accounts_fn: Any,
@@ -28,31 +29,31 @@ def initialize_window_state(
     reset_current_main_account_name_fn()
 
 
-def entry_account(window: Any) -> Any:
+def entry_account(window: MainWindowProtocol) -> Any:
     return next((item for item in window.accounts if item.is_entry_account), None)
 
 
-def selected_index(window: Any) -> int:
+def selected_index(window: MainWindowProtocol) -> int:
     selected = window.table.selectionModel().selectedRows()
     return selected[0].row() if selected else -1
 
 
-def selected_indexes(window: Any) -> list[int]:
+def selected_indexes(window: MainWindowProtocol) -> list[int]:
     selected = window.table.selectionModel().selectedRows()
     return sorted(item.row() for item in selected)
 
 
-def selected_account(window: Any) -> AccountConfig | None:
+def selected_account(window: MainWindowProtocol) -> AccountConfig | None:
     index = window.selected_index()
     return window.accounts[index] if 0 <= index < len(window.accounts) else None
 
 
-def handle_selection_changed(window: Any) -> None:
+def handle_selection_changed(window: MainWindowProtocol) -> None:
     window.table.viewport().update()
     window._update_action_buttons()
 
 
-def update_action_buttons(window: Any) -> None:
+def update_action_buttons(window: MainWindowProtocol) -> None:
     current_indexes = window.selected_indexes()
     single_selected = len(current_indexes) == 1
     account = window.accounts[current_indexes[0]] if single_selected else None
@@ -82,7 +83,7 @@ def update_action_buttons(window: Any) -> None:
         window.stop_fetch_button.setEnabled(bool(window._threads))
 
 
-def stop_fetching(window: Any) -> None:
+def stop_fetching(window: MainWindowProtocol) -> None:
     if not window._threads:
         window._show_info("提示", "当前没有正在执行的抓取或推送任务。")
         return
@@ -93,7 +94,7 @@ def stop_fetching(window: Any) -> None:
     window._set_status_text("正在停止后台任务")
 
 
-def update_current_main_account(window: Any, account_name: str, *, save_settings_fn: Any) -> None:
+def update_current_main_account(window: MainWindowProtocol, account_name: str, *, save_settings_fn: Any) -> None:
     current_name = account_name.strip()
     if not current_name:
         return
@@ -101,7 +102,7 @@ def update_current_main_account(window: Any, account_name: str, *, save_settings
     save_settings_fn(window.settings)
 
 
-def reset_current_main_account_name(window: Any, *, save_settings_fn: Any) -> None:
+def reset_current_main_account_name(window: MainWindowProtocol, *, save_settings_fn: Any) -> None:
     if not window.settings.current_main_account_name.strip():
         return
     window.settings.current_main_account_name = ""
@@ -109,7 +110,7 @@ def reset_current_main_account_name(window: Any, *, save_settings_fn: Any) -> No
 
 
 def run_thread(
-    window: Any,
+    window: MainWindowProtocol,
     job_builder: Any,
     on_success: Any,
     *,
@@ -128,5 +129,5 @@ def run_thread(
     )
 
 
-def handle_thread_finished(window: Any, thread: Any) -> None:
+def handle_thread_finished(window: MainWindowProtocol, thread: Any) -> None:
     window._task_runner.handle_finished(thread)

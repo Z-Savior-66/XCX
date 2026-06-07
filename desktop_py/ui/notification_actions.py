@@ -13,9 +13,10 @@ from desktop_py.core.notification_state_service import (
     clear_pushed_fetch_state as clear_pushed_fetch_state_service,
 )
 from desktop_py.ui.fetch_actions import _enabled_imported_accounts
+from desktop_py.ui.protocols import MainWindowProtocol
 
 
-def auto_fetch_and_send(window: Any) -> None:
+def auto_fetch_and_send(window: MainWindowProtocol) -> None:
     if window._threads:
         window.append_log("抓取并推送已跳过：当前仍有后台任务在执行。")
         return
@@ -41,7 +42,7 @@ def should_skip_auto_summary_for_results(results: list) -> bool:
     return all(str(getattr(result, "note", "") or "").strip() == AUTO_PUSH_SKIP_NOTE for result in results)
 
 
-def _handle_auto_summary_after_fetch(window: Any, webhook: str, results: list) -> None:
+def _handle_auto_summary_after_fetch(window: MainWindowProtocol, webhook: str, results: list) -> None:
     if should_skip_auto_summary_for_results(results):
         window.append_log("批量抓取已完成。")
         window.append_log("自动抓取推送已跳过：当前登录态未进入后台页，且没有可复用的历史反馈页地址。")
@@ -49,7 +50,7 @@ def _handle_auto_summary_after_fetch(window: Any, webhook: str, results: list) -
     window._send_summary_with_webhook(webhook, append_batch_log=True, results=results)
 
 
-def send_summary(window: Any) -> None:
+def send_summary(window: MainWindowProtocol) -> None:
     webhook = window.webhook_edit.text().strip()
     window.settings.feishu_webhook = webhook
     if not webhook:
@@ -59,7 +60,7 @@ def send_summary(window: Any) -> None:
 
 
 def send_summary_with_webhook(
-    window: Any,
+    window: MainWindowProtocol,
     webhook: str,
     append_batch_log: bool = False,
     results: list | None = None,
@@ -103,7 +104,7 @@ def send_summary_with_webhook(
     )
 
 
-def clear_pushed_fetch_state(window: Any, *, save_accounts_fn: Any) -> None:
+def clear_pushed_fetch_state(window: MainWindowProtocol, *, save_accounts_fn: Any) -> None:
     clear_pushed_fetch_state_service(window.accounts)
     window.refresh_table()
     try:

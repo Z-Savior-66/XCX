@@ -22,17 +22,18 @@ from desktop_py.core.schedule_state_service import (
 from desktop_py.core.session_persistence import analyze_storage_state
 from desktop_py.ui.fetch_actions import _enabled_imported_accounts
 from desktop_py.ui.notification_actions import _handle_auto_summary_after_fetch
+from desktop_py.ui.protocols import MainWindowProtocol
 from desktop_py.ui.session_actions import account_for_auto_renew, renew_switch_account_names
 
 
-def schedule_startup_jobs(window: Any, *, timer_cls: Any) -> None:
+def schedule_startup_jobs(window: MainWindowProtocol, *, timer_cls: Any) -> None:
     timer_cls.singleShot(0, window._run_auto_renew)
     timer_cls.singleShot(0, window._auto_validate_entry_account)
     timer_cls.singleShot(0, window._apply_auto_fetch_push_schedule)
     timer_cls.singleShot(0, window._apply_auto_renew_schedule)
 
 
-def handle_auto_fetch_push_toggled(window: Any, checked: bool, *, save_settings_fn: Any) -> None:
+def handle_auto_fetch_push_toggled(window: MainWindowProtocol, checked: bool, *, save_settings_fn: Any) -> None:
     window.settings.auto_fetch_push_enabled = checked
     save_settings_fn(window.settings)
     if checked:
@@ -47,7 +48,7 @@ def _format_next_schedule_time(interval_ms: int, *, now_fn: Any = None) -> str:
 
 
 def _persist_schedule_state(
-    window: Any,
+    window: MainWindowProtocol,
     *,
     save_schedule_state_fn: Any = None,
     next_auto_renew_at: str | None = None,
@@ -67,7 +68,7 @@ def _persist_schedule_state(
     )
 
 
-def apply_auto_fetch_push_schedule(window: Any, *, save_schedule_state_fn: Any = None, now_fn: Any = None) -> None:
+def apply_auto_fetch_push_schedule(window: MainWindowProtocol, *, save_schedule_state_fn: Any = None, now_fn: Any = None) -> None:
     window._auto_fetch_timer.stop()
     if not window.settings.auto_fetch_push_enabled:
         _persist_schedule_state(
@@ -90,11 +91,11 @@ def apply_auto_fetch_push_schedule(window: Any, *, save_schedule_state_fn: Any =
     )
 
 
-def milliseconds_until_next_auto_fetch_push(window: Any, now: Any = None, *, next_interval_fn: Any) -> int:
+def milliseconds_until_next_auto_fetch_push(window: MainWindowProtocol, now: Any = None, *, next_interval_fn: Any) -> int:
     return int(next_interval_fn(now))
 
 
-def handle_auto_fetch_push_timeout(window: Any) -> None:
+def handle_auto_fetch_push_timeout(window: MainWindowProtocol) -> None:
     window._apply_auto_fetch_push_schedule()
     window._run_auto_fetch_push()
 
@@ -121,7 +122,7 @@ def auto_renew_schedule_interval(
 
 
 def apply_auto_renew_schedule(
-    window: Any,
+    window: MainWindowProtocol,
     *,
     min_auto_renew_interval_ms: int,
     max_auto_renew_interval_ms: int,
@@ -146,13 +147,13 @@ def apply_auto_renew_schedule(
         window.append_log(f"自动续期下次将在约 {_format_interval(interval)} 后执行：{reason}。")
 
 
-def handle_auto_renew_timeout(window: Any) -> None:
+def handle_auto_renew_timeout(window: MainWindowProtocol) -> None:
     window._apply_auto_renew_schedule()
     window._run_auto_renew()
 
 
 def run_auto_renew(
-    window: Any,
+    window: MainWindowProtocol,
     *,
     renew_account_state_fn: Any,
     close_all_group_runtimes_fn: Any = None,
@@ -196,7 +197,7 @@ def run_auto_renew(
     )
 
 
-def mark_auto_renew_result(window: Any, account: Any, valid: bool, *, save_accounts_fn: Any) -> None:
+def mark_auto_renew_result(window: MainWindowProtocol, account: Any, valid: bool, *, save_accounts_fn: Any) -> None:
     account.last_status = "登录有效" if valid else "登录失效"
     account.session_renewal_failures = 0 if valid else int(getattr(account, "session_renewal_failures", 0) or 0) + 1
     if valid:
@@ -211,7 +212,7 @@ def mark_auto_renew_result(window: Any, account: Any, valid: bool, *, save_accou
     window.refresh_table()
 
 
-def run_auto_fetch_push(window: Any) -> None:
+def run_auto_fetch_push(window: MainWindowProtocol) -> None:
     if window._threads:
         window.append_log("自动抓取推送已跳过：当前存在后台任务。")
         return

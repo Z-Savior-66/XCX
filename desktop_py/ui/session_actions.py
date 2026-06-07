@@ -11,9 +11,10 @@ from desktop_py.core.account_status import (
 from desktop_py.core.models import SESSION_STATUS_STALE, SESSION_STATUS_VALID
 from desktop_py.core.session_links import propagate_account_feedback_url
 from desktop_py.ui.common_actions import entry_account
+from desktop_py.ui.protocols import MainWindowProtocol
 
 
-def auto_validate_entry_account(window: Any, *, os_module: Any, validate_account_state_fn: Any) -> None:
+def auto_validate_entry_account(window: MainWindowProtocol, *, os_module: Any, validate_account_state_fn: Any) -> None:
     if os_module.environ.get("QT_QPA_PLATFORM") == "offscreen":
         return
     account = entry_account(window)
@@ -33,14 +34,14 @@ def auto_validate_entry_account(window: Any, *, os_module: Any, validate_account
     )
 
 
-def safe_validate_account_state(window: Any, account: Any, *, validate_account_state_fn: Any) -> bool:
+def safe_validate_account_state(window: MainWindowProtocol, account: Any, *, validate_account_state_fn: Any) -> bool:
     try:
         return bool(validate_account_state_fn(account, None, window.settings.browser_profile_dir))
     except Exception:
         return False
 
 
-def account_for_auto_renew(window: Any, candidates: list | None = None) -> Any:
+def account_for_auto_renew(window: MainWindowProtocol, candidates: list | None = None) -> Any:
     current_entry_account = entry_account(window)
     if current_entry_account is not None and current_entry_account.enabled:
         return current_entry_account
@@ -49,7 +50,7 @@ def account_for_auto_renew(window: Any, candidates: list | None = None) -> Any:
     return None
 
 
-def renew_switch_account_names(window: Any, account: Any) -> list[str]:
+def renew_switch_account_names(window: MainWindowProtocol, account: Any) -> list[str]:
     state_path = str(getattr(account, "state_path", "") or "").strip()
     uses_shared_profile = bool(str(getattr(getattr(window, "settings", None), "browser_profile_dir", "") or "").strip())
     names: list[str] = []
@@ -67,7 +68,7 @@ def renew_switch_account_names(window: Any, account: Any) -> list[str]:
     return names
 
 
-def login_selected(window: Any, *, save_login_state_with_profile_fn: Any, save_login_state_fn: Any) -> None:
+def login_selected(window: MainWindowProtocol, *, save_login_state_with_profile_fn: Any, save_login_state_fn: Any) -> None:
     account = window.selected_account()
     if not account:
         window._show_info("提示", "请先选择一个账号。")
@@ -92,7 +93,7 @@ def login_selected(window: Any, *, save_login_state_with_profile_fn: Any, save_l
 
 
 def mark_login(
-    window: Any, account: Any, *, datetime_cls: Any, save_accounts_fn: Any, close_all_group_runtimes_fn: Any = None
+    window: MainWindowProtocol, account: Any, *, datetime_cls: Any, save_accounts_fn: Any, close_all_group_runtimes_fn: Any = None
 ) -> None:
     account.last_login_at = datetime_cls.now().strftime("%Y-%m-%d %H:%M:%S")
     account.last_status = LOGIN_STATUS_SAVED
@@ -112,13 +113,13 @@ def mark_login(
     window.append_log("登录态已保存完成。")
 
 
-def login_start_message(window: Any, account: Any) -> str:
+def login_start_message(window: MainWindowProtocol, account: Any) -> str:
     if window.settings.browser_profile_dir.strip():
         return f"正在打开共享浏览器资料目录。请在 {window.settings.login_wait_seconds} 秒内完成扫码，登录成功后保持页面打开等待自动保存。"
     return f"正在为账号 {account.name} 打开独立登录窗口。请在 {window.settings.login_wait_seconds} 秒内完成扫码，登录成功后保持页面打开等待自动保存。"
 
 
-def validate_selected(window: Any, *, validate_account_state_fn: Any) -> None:
+def validate_selected(window: MainWindowProtocol, *, validate_account_state_fn: Any) -> None:
     account = window.selected_account()
     if not account:
         window._show_info("提示", "请先选择一个账号。")
@@ -135,7 +136,7 @@ def validate_selected(window: Any, *, validate_account_state_fn: Any) -> None:
     )
 
 
-def renew_selected(window: Any, *, renew_account_state_fn: Any, close_all_group_runtimes_fn: Any = None) -> None:
+def renew_selected(window: MainWindowProtocol, *, renew_account_state_fn: Any, close_all_group_runtimes_fn: Any = None) -> None:
     account = window.selected_account()
     if not account:
         window._show_info("提示", "请先选择一个账号。")
@@ -161,7 +162,7 @@ def renew_selected(window: Any, *, renew_account_state_fn: Any, close_all_group_
     window._run_thread(job, on_success=lambda ok: window._mark_auto_renew_result(account, bool(ok)))
 
 
-def mark_validation(window: Any, account: Any, valid: bool, *, save_accounts_fn: Any) -> None:
+def mark_validation(window: MainWindowProtocol, account: Any, valid: bool, *, save_accounts_fn: Any) -> None:
     account.last_status = LOGIN_STATUS_VALID if valid else LOGIN_STATUS_INVALID
     if valid:
         account.last_note = (

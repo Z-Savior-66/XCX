@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from desktop_py.core.account_status import fetch_status_from_result
+from desktop_py.ui.protocols import MainWindowProtocol
 
 FETCH_MANIFEST_NAME = "fetch_manifest.json"
 
@@ -11,7 +12,7 @@ def account_state_save_failure_message(exc: Exception) -> str:
     return f"抓取已完成，但账号状态暂未写入 data/accounts.json：{exc}"
 
 
-def fetch_selected(window: Any, *, fetch_account_fn: Any) -> None:
+def fetch_selected(window: MainWindowProtocol, *, fetch_account_fn: Any) -> None:
     account = window.selected_account()
     if not account:
         window._show_info("提示", "请先选择一个账号。")
@@ -30,11 +31,11 @@ def fetch_selected(window: Any, *, fetch_account_fn: Any) -> None:
     )
 
 
-def _enabled_imported_accounts(window: Any) -> Any:
+def _enabled_imported_accounts(window: MainWindowProtocol) -> Any:
     return [account for account in window.accounts if account.enabled and (not account.is_entry_account)]
 
 
-def fetch_all(window: Any) -> None:
+def fetch_all(window: MainWindowProtocol) -> None:
     enabled_accounts = _enabled_imported_accounts(window)
     if not enabled_accounts:
         window._show_info("提示", "没有可抓取的导入账号。")
@@ -46,7 +47,7 @@ def fetch_all(window: Any) -> None:
     )
 
 
-def build_fetch_job(window: Any, enabled_accounts: list, *, fetch_accounts_batch_fn: Any) -> Any:
+def build_fetch_job(window: MainWindowProtocol, enabled_accounts: list, *, fetch_accounts_batch_fn: Any) -> Any:
 
     def job(log: Any, progress: Any, is_cancelled: Any = None) -> Any:
         return fetch_accounts_batch_fn(
@@ -61,7 +62,7 @@ def build_fetch_job(window: Any, enabled_accounts: list, *, fetch_accounts_batch
     return job
 
 
-def mark_fetch_progress(window: Any, result: Any) -> None:
+def mark_fetch_progress(window: MainWindowProtocol, result: Any) -> None:
     account = next((item for item in window.accounts if item.name == result.account_name), None)
     if account is None:
         return
@@ -86,7 +87,7 @@ def fetch_diagnostic_message(account: Any, result: Any, *, account_output_file_f
 
 
 def mark_fetch_result(
-    window: Any,
+    window: MainWindowProtocol,
     account: Any,
     result: Any,
     *,
@@ -116,7 +117,7 @@ def mark_fetch_result(
         window.refresh_table()
 
 
-def mark_batch_results(window: Any, results: list, *, apply_batch_fetch_results_fn: Any, save_accounts_fn: Any) -> None:
+def mark_batch_results(window: MainWindowProtocol, results: list, *, apply_batch_fetch_results_fn: Any, save_accounts_fn: Any) -> None:
     latest_actual_account_name = apply_batch_fetch_results_fn(window.accounts, results)
     window.refresh_table()
     try:
