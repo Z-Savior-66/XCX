@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import sys
 import tempfile
 import time
@@ -225,6 +226,10 @@ def _write_text_atomic(path: Path, content: str, encoding: str = "utf-8") -> Non
                 if attempt == ATOMIC_WRITE_REPLACE_ATTEMPTS - 1:
                     raise
                 time.sleep(ATOMIC_WRITE_RETRY_DELAY_SECONDS)
+        try:
+            path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        except OSError:
+            pass
     except Exception:
         if temp_path:
             try:
@@ -287,10 +292,12 @@ def _has_browser_lock_markers(path: Path) -> bool:
 
 
 def ensure_runtime_dirs() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-    PY_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    for dir_path in (DATA_DIR, LOG_DIR, STORAGE_DIR, PY_OUTPUT_DIR):
+        dir_path.mkdir(parents=True, exist_ok=True)
+        try:
+            dir_path.chmod(stat.S_IRWXU)
+        except OSError:
+            pass
     if not ACCOUNTS_FILE.exists():
         _write_text_atomic(ACCOUNTS_FILE, "[]\n")
     if not SETTINGS_FILE.exists():
