@@ -55,7 +55,7 @@ ACCOUNTS_FILE = DATA_DIR / "accounts.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 SCHEDULE_STATE_FILE = DATA_DIR / "schedule_state.json"
 RUNNING_INSTANCE_LOCK_FILE = DATA_DIR / "app.lock"
-BLOCKED_ACCOUNTS_FILE = Path(__file__).resolve().parent / "blocked_accounts.json"
+BLOCKED_ACCOUNTS_FILE = DATA_DIR / "blocked_accounts.json"
 DEFAULT_BLOCKED_ACCOUNT_NAMES = (
     "山每北荒修僊1",
     "山每北荒修僊2",
@@ -248,15 +248,18 @@ def _ensure_blocked_accounts_file() -> None:
 
 
 def load_blocked_account_names() -> set[str]:
-    ensure_runtime_dirs()
     try:
+        ensure_runtime_dirs()
         _ensure_blocked_accounts_file()
-        data = cast(list[str], _read_json_file_or_recover(BLOCKED_ACCOUNTS_FILE, "[]\n"))
-    except OSError, json.JSONDecodeError, TypeError:
-        return set()
+        data = cast(list[str], _read_json_file_or_recover(BLOCKED_ACCOUNTS_FILE, DEFAULT_BLOCKED_ACCOUNTS_CONTENT))
+    except OSError:
+        return set(DEFAULT_BLOCKED_ACCOUNT_NAMES)
+    except json.JSONDecodeError, TypeError:
+        return set(DEFAULT_BLOCKED_ACCOUNT_NAMES)
     if not isinstance(data, list):
-        return set()
-    return {item for item in data if isinstance(item, str) and item.strip()}
+        return set(DEFAULT_BLOCKED_ACCOUNT_NAMES)
+    names = {item for item in data if isinstance(item, str) and item.strip()}
+    return names or set(DEFAULT_BLOCKED_ACCOUNT_NAMES)
 
 
 def save_blocked_account_names(names: set[str]) -> None:

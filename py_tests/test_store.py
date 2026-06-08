@@ -23,6 +23,7 @@ from desktop_py.core.store import (
     prepare_shared_browser_profile_dir,
     runtime_root,
     save_accounts,
+    save_blocked_account_names,
     save_schedule_state,
     save_settings,
     validate_shared_browser_profile_dir,
@@ -69,6 +70,82 @@ class StoreTestCase(unittest.TestCase):
 
         self.assertEqual(names, set(DEFAULT_BLOCKED_ACCOUNT_NAMES))
         self.assertEqual(created_data, list(DEFAULT_BLOCKED_ACCOUNT_NAMES))
+
+    def test_blocked_accounts_file_lives_under_data_dir(self):
+        from desktop_py.core import store
+
+        self.assertEqual(store.BLOCKED_ACCOUNTS_FILE, store.DATA_DIR / "blocked_accounts.json")
+
+    def test_load_blocked_account_names_returns_defaults_when_file_cannot_be_created(self):
+        with TemporaryDirectory() as temp_dir:
+            blocked_path = Path(temp_dir) / "blocked_accounts.json"
+
+            with (
+                patch("desktop_py.core.store.BLOCKED_ACCOUNTS_FILE", blocked_path),
+                patch("desktop_py.core.store._write_text_atomic", side_effect=OSError("readonly")),
+            ):
+                names = load_blocked_account_names()
+
+        self.assertEqual(names, set(DEFAULT_BLOCKED_ACCOUNT_NAMES))
+
+    def test_load_blocked_account_names_returns_defaults_when_runtime_dirs_fail(self):
+        with patch("desktop_py.core.store.ensure_runtime_dirs", side_effect=OSError("readonly")):
+            names = load_blocked_account_names()
+
+        self.assertEqual(names, set(DEFAULT_BLOCKED_ACCOUNT_NAMES))
+
+    def test_load_blocked_account_names_returns_defaults_for_corrupt_json(self):
+        with TemporaryDirectory() as temp_dir:
+            blocked_path = Path(temp_dir) / "blocked_accounts.json"
+            blocked_path.write_text("{broken", encoding="utf-8")
+
+            with patch("desktop_py.core.store.BLOCKED_ACCOUNTS_FILE", blocked_path):
+                names = load_blocked_account_names()
+
+        self.assertEqual(names, set(DEFAULT_BLOCKED_ACCOUNT_NAMES))
+
+    def test_load_blocked_account_names_returns_defaults_for_non_list_payload(self):
+        with TemporaryDirectory() as temp_dir:
+            blocked_path = Path(temp_dir) / "blocked_accounts.json"
+            blocked_path.write_text('{"name":"账号"}\n', encoding="utf-8")
+
+            with patch("desktop_py.core.store.BLOCKED_ACCOUNTS_FILE", blocked_path):
+                names = load_blocked_account_names()
+
+        self.assertEqual(names, set(DEFAULT_BLOCKED_ACCOUNT_NAMES))
+
+    def test_load_blocked_account_names_returns_defaults_for_empty_list(self):
+        with TemporaryDirectory() as temp_dir:
+            blocked_path = Path(temp_dir) / "blocked_accounts.json"
+            blocked_path.write_text("[]\n", encoding="utf-8")
+
+            with patch("desktop_py.core.store.BLOCKED_ACCOUNTS_FILE", blocked_path):
+                names = load_blocked_account_names()
+
+        self.assertEqual(names, set(DEFAULT_BLOCKED_ACCOUNT_NAMES))
+
+    def test_load_blocked_account_names_returns_defaults_when_read_fails(self):
+        with TemporaryDirectory() as temp_dir:
+            blocked_path = Path(temp_dir) / "blocked_accounts.json"
+            blocked_path.write_text('["自定义"]\n', encoding="utf-8")
+
+            with (
+                patch("desktop_py.core.store.BLOCKED_ACCOUNTS_FILE", blocked_path),
+                patch("desktop_py.core.store._read_json_file_or_recover", side_effect=OSError("read failed")),
+            ):
+                names = load_blocked_account_names()
+
+        self.assertEqual(names, set(DEFAULT_BLOCKED_ACCOUNT_NAMES))
+
+    def test_load_blocked_account_names_returns_defaults_after_saving_empty_set(self):
+        with TemporaryDirectory() as temp_dir:
+            blocked_path = Path(temp_dir) / "blocked_accounts.json"
+
+            with patch("desktop_py.core.store.BLOCKED_ACCOUNTS_FILE", blocked_path):
+                save_blocked_account_names(set())
+                names = load_blocked_account_names()
+
+        self.assertEqual(names, set(DEFAULT_BLOCKED_ACCOUNT_NAMES))
 
     def test_load_schedule_state_defaults_when_missing(self):
         with TemporaryDirectory() as temp_dir:

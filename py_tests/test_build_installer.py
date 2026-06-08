@@ -20,11 +20,66 @@ class BuildInstallerScriptTestCase(unittest.TestCase):
         self.assertIn("--collect-all playwright", content)
         self.assertIn("_internal\\playwright\\driver\\package\\.local-browsers", content)
 
-    def test_build_script_does_not_collect_blocked_accounts_resource(self):
+    def test_installer_uses_runtime_data_for_blocked_accounts(self):
         content = SCRIPT_PATH.read_text(encoding="utf-8")
+        installer_content = INSTALLER_ISS_PATH.read_text(encoding="utf-8")
 
         self.assertNotIn("desktop_py\\core\\blocked_accounts.json", content)
-        self.assertNotIn("blockedAccountsPath", content)
+        self.assertNotIn("blocked_accounts.json", installer_content)
+
+    def test_installer_output_dir_is_defined_by_build_script(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+        installer_content = INSTALLER_ISS_PATH.read_text(encoding="utf-8")
+
+        self.assertIn('#define MyOutputDir "$tempInstallerDir"', content)
+        self.assertIn("#ifndef MyOutputDir", installer_content)
+        self.assertIn("OutputDir={#MyOutputDir}", installer_content)
+
+    def test_build_script_does_not_remove_shared_temp_dist_directory(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertNotIn('Join-Path $env:TEMP "dist"', content)
+        self.assertNotIn('Remove-Item -LiteralPath (Join-Path $env:TEMP "dist")', content)
+
+    def test_build_script_uses_unique_temp_build_root(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("[guid]::NewGuid()", content)
+        self.assertIn('Join-Path $env:TEMP ("xcx_build_{0}" -f [guid]::NewGuid())', content)
+        self.assertNotIn('$tempBuildRoot = Join-Path $env:TEMP "xcx_build"', content)
+
+    def test_build_script_checks_inno_exit_code_and_expected_installer(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("& $innoCompiler $tempIssScript", content)
+        self.assertIn("if ($LASTEXITCODE -ne 0)", content)
+        self.assertIn("Inno Setup 编译失败", content)
+        self.assertIn('$expectedInstallerPath = Join-Path $tempInstallerDir "$outputBaseFilename.exe"', content)
+        self.assertIn("Test-Path -LiteralPath $expectedInstallerPath", content)
+        self.assertIn("未找到安装包输出文件", content)
+        self.assertIn("Copy-Item -LiteralPath $expectedInstallerPath", content)
+
+    def test_build_script_checks_pyinstaller_build_exit_code(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        start = content.index("& $pythonExe -m PyInstaller `")
+        end = content.index("foreach ($name in @(")
+        build_block = content[start:end]
+
+        self.assertIn("if ($LASTEXITCODE -ne 0)", build_block)
+        self.assertIn("PyInstaller 构建失败", build_block)
+
+    def test_build_script_always_checks_expected_installer_path(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        expected_path_index = content.index(
+            '$expectedInstallerPath = Join-Path $tempInstallerDir "$outputBaseFilename.exe"'
+        )
+        temp_dir_guard_index = content.find("if (Test-Path $tempInstallerDir)")
+
+        self.assertEqual(temp_dir_guard_index, -1)
+        self.assertIn("if (-not (Test-Path -LiteralPath $expectedInstallerPath))", content[expected_path_index:])
+        self.assertIn("Copy-Item -LiteralPath $expectedInstallerPath", content[expected_path_index:])
 
     def test_build_script_places_temporary_outputs_under_cache_root(self):
         content = SCRIPT_PATH.read_text(encoding="utf-8")
@@ -82,6 +137,36 @@ class BuildInstallerScriptTestCase(unittest.TestCase):
         self.assertIn('#define MyAppIconPath "$tempAppIconPath"', content)
         self.assertIn("--icon $appIconPath", content)
         self.assertIn('--add-data "$appAssetsPath;assets"', content)
+
+    def test_build_script_resolves_python_command_once_and_reuses_it(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("function Resolve-PythonCommand", content)
+        self.assertEqual(content.count("Resolve-PythonCommand -ProjectRoot $projectRoot"), 1)
+        self.assertIn("$pythonExe = Resolve-PythonCommand -ProjectRoot $projectRoot", content)
+        self.assertIn("Resolve-AppVersion -ProjectRoot $projectRoot -PythonCommand $pythonExe", content)
+        self.assertIn("Assert-PyInstallerAvailable -PythonCommand $pythonExe", content)
+        self.assertIn("Resolve-PyInstallerVersionText -PythonCommand $pythonExe", content)
+        self.assertIn("& $pythonExe -m PyInstaller", content)
+
+    def test_build_script_checks_pyinstaller_exit_code(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+        start = content.index("function Assert-PyInstallerAvailable")
+        end = content.index("function Resolve-PyInstallerVersionText")
+        function_body = content[start:end]
+
+        self.assertIn("& $PythonCommand -m PyInstaller --version | Out-Null", function_body)
+        self.assertIn("if ($LASTEXITCODE -ne 0)", function_body)
+        self.assertIn(
+            'throw "未检测到 PyInstaller。请先执行：$PythonCommand -m pip install -r requirements-build.txt"',
+            function_body,
+        )
+
+    def test_build_script_does_not_use_bare_python_for_build_checks(self):
+        content = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertNotIn("python -m PyInstaller --version", content)
+        self.assertNotIn("$version = & python -c", content)
 
     def test_version_module_exposes_single_app_version(self):
         self.assertEqual(APP_VERSION, "1.0.0")

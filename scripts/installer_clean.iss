@@ -16,6 +16,9 @@
 #ifndef MyOutputBaseFilename
   #define MyOutputBaseFilename "小程序工具"
 #endif
+#ifndef MyOutputDir
+  #define MyOutputDir "..\dist\installer"
+#endif
 #ifndef MyAppIconPath
   #define MyAppIconPath "..\assets\app_icon.ico"
 #endif
@@ -30,7 +33,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
-OutputDir=..\dist\installer
+OutputDir={#MyOutputDir}
 OutputBaseFilename={#MyOutputBaseFilename}
 Compression=lzma
 SolidCompression=yes

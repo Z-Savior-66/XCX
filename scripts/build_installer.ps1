@@ -18,6 +18,19 @@ function Write-Utf8NoBomFile {
     [System.IO.File]::WriteAllText($Path, $Content, $utf8NoBom)
 }
 
+function Resolve-PythonCommand {
+    param(
+        [string]$ProjectRoot
+    )
+
+    $venvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+    if (Test-Path -LiteralPath $venvPython) {
+        return $venvPython
+    }
+
+    return "python"
+}
+
 function Resolve-InnoCompilerPath {
     param(
         [string]$ProjectRoot
@@ -36,21 +49,36 @@ function Resolve-InnoCompilerPath {
 }
 
 function Assert-PyInstallerAvailable {
-    try {
-        python -m PyInstaller --version | Out-Null
+    param(
+        [string]$PythonCommand
+    )
+
+    & $PythonCommand -m PyInstaller --version | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "未检测到 PyInstaller。请先执行：$PythonCommand -m pip install -r requirements-build.txt"
     }
-    catch {
-        throw "未检测到 PyInstaller。请先执行：python -m pip install -r requirements-build.txt"
+}
+
+function Resolve-PyInstallerVersionText {
+    param(
+        [string]$PythonCommand
+    )
+
+    $version = & $PythonCommand -m PyInstaller --version 2>$null | Select-Object -First 1
+    if ($LASTEXITCODE -ne 0 -or -not $version) {
+        return "未安装"
     }
+    return $version
 }
 
 function Resolve-AppVersion {
     param(
-        [string]$ProjectRoot
+        [string]$ProjectRoot,
+        [string]$PythonCommand
     )
 
     $escapedProjectRoot = $ProjectRoot.Replace("'", "''")
-    $version = & python -c "import sys; sys.path.insert(0, r'$escapedProjectRoot'); from desktop_py.version import APP_VERSION; print(APP_VERSION)"
+    $version = & $PythonCommand -c "import sys; sys.path.insert(0, r'$escapedProjectRoot'); from desktop_py.version import APP_VERSION; print(APP_VERSION)"
     if ($LASTEXITCODE -ne 0) {
         throw "读取应用版本失败，请检查 desktop_py\\version.py。"
     }
@@ -90,6 +118,7 @@ function Resolve-OfflineRuntimeSource {
 }
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$pythonExe = Resolve-PythonCommand -ProjectRoot $projectRoot
 $env:PYTHONDONTWRITEBYTECODE = "1"
 $cacheRoot = Join-Path $projectRoot ".cache"
 $buildCacheRoot = Join-Path $cacheRoot "build"
@@ -97,7 +126,7 @@ $distRoot = Join-Path $projectRoot "dist"
 $installerSourceRoot = Join-Path $buildCacheRoot "installer-source"
 $pyInstallerWorkRoot = Join-Path $buildCacheRoot "pyinstaller"
 $appName = "小程序工具"
-$appVersion = Resolve-AppVersion -ProjectRoot $projectRoot
+$appVersion = Resolve-AppVersion -ProjectRoot $projectRoot -PythonCommand $pythonExe
 $appPublisher = "本地构建"
 $installerSourceDir = Join-Path $installerSourceRoot $appName
 $installerExeName = "$appName.exe"
@@ -118,7 +147,7 @@ if ($DryRun) {
     Write-Host "输出文件名:      $outputBaseFilename"
     Write-Host "应用图标:        $(if (Test-Path $appIconPath) { '存在' } else { '不存在！' })"
     Write-Host "Inno编译器:      $innoCompiler"
-    Write-Host "PyInstaller:     $(try { python -m PyInstaller --version 2>&1 | Select-Object -First 1 } catch { '未安装' })"
+    Write-Host "PyInstaller:     $(Resolve-PyInstallerVersionText -PythonCommand $pythonExe)"
     Write-Host "离线运行时:      $(if ($IncludeOfflineChromium) { '包含' } else { '不包含' })"
     if (-not $SkipVerification) { Write-Host "本地验证:        启用" } else { Write-Host "本地验证:        跳过" }
     Write-Host "══════════════════════════════════════════════"
@@ -129,7 +158,7 @@ if ($DryRun) {
 if (-not $SkipVerification) {
     Invoke-LocalVerification -ProjectRoot $projectRoot
 }
-Assert-PyInstallerAvailable
+Assert-PyInstallerAvailable -PythonCommand $pythonExe
 if (-not (Test-Path $appIconPath)) {
     throw "未找到应用图标：assets\app_icon.ico"
 }
@@ -158,9 +187,6 @@ try {
     }
     New-Item -ItemType Directory -Path $installerSourceRoot -Force | Out-Null
 
-    $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
-    $pythonExe = if (Test-Path $venvPython) { $venvPython } else { "python" }
-
     Write-Host "开始构建安装包..."
     & $pythonExe -m PyInstaller `
         --noconfirm `
@@ -175,6 +201,10 @@ try {
         --add-data "$appAssetsPath;assets" `
         --collect-all playwright `
         desktop_main.py
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "PyInstaller 构建失败，退出码：$LASTEXITCODE"
+    }
 
     foreach ($name in @(
         "_internal\playwright\driver\package\.local-browsers",
@@ -221,11 +251,10 @@ try {
         Copy-Item -LiteralPath $offlineRuntimeSource -Destination $offlineRuntimeTarget -Recurse -Force
     }
 
-    $tempBuildRoot = Join-Path $env:TEMP "xcx_build"
-    if (Test-Path $tempBuildRoot) {
-        Remove-Item -LiteralPath $tempBuildRoot -Recurse -Force
-    }
+    $tempBuildRoot = Join-Path $env:TEMP ("xcx_build_{0}" -f [guid]::NewGuid())
     $tempSourceDir = Join-Path $tempBuildRoot "app"
+    $tempInstallerDir = Join-Path $tempBuildRoot "installer"
+    New-Item -ItemType Directory -Path $tempInstallerDir -Force | Out-Null
     Copy-Item -LiteralPath $installerSourceDir -Destination $tempSourceDir -Recurse -Force
     $tempAppIconPath = Join-Path $tempBuildRoot "app_icon.ico"
     Copy-Item -LiteralPath $appIconPath -Destination $tempAppIconPath -Force
@@ -238,6 +267,7 @@ try {
 #define MyAppExeName "$installerExeName"
 #define MySourceDir "$tempSourceDir"
 #define MyOutputBaseFilename "$outputBaseFilename"
+#define MyOutputDir "$tempInstallerDir"
 #define MyAppIconPath "$tempAppIconPath"
 
 "@
@@ -247,23 +277,26 @@ try {
     Push-Location $tempBuildRoot
     try {
         & $innoCompiler $tempIssScript
+        if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup 编译失败，退出码：$LASTEXITCODE"
+        }
     } finally {
         Pop-Location
     }
-    Remove-Item -LiteralPath $tempBuildRoot -Recurse -Force -ErrorAction SilentlyContinue
     if (Test-Path $installerSourceRoot) {
         Remove-Item -LiteralPath $installerSourceRoot -Recurse -Force
     }
     # 将临时目录的输出复制回项目 dist 目录
-    $tempInstallerDir = Join-Path $env:TEMP "dist\installer"
     $projectInstallerDir = Join-Path $distRoot "installer"
-    if (Test-Path $tempInstallerDir) {
-        if (-not (Test-Path $projectInstallerDir)) {
-            New-Item -ItemType Directory -Path $projectInstallerDir -Force | Out-Null
-        }
-        Copy-Item -LiteralPath (Join-Path $tempInstallerDir "$outputBaseFilename.exe") -Destination $projectInstallerDir -Force
-        Remove-Item -LiteralPath (Join-Path $env:TEMP "dist") -Recurse -Force -ErrorAction SilentlyContinue
+    if (-not (Test-Path $projectInstallerDir)) {
+        New-Item -ItemType Directory -Path $projectInstallerDir -Force | Out-Null
     }
+    $expectedInstallerPath = Join-Path $tempInstallerDir "$outputBaseFilename.exe"
+    if (-not (Test-Path -LiteralPath $expectedInstallerPath)) {
+        throw "未找到安装包输出文件：$expectedInstallerPath"
+    }
+    Copy-Item -LiteralPath $expectedInstallerPath -Destination $projectInstallerDir -Force
+    Remove-Item -LiteralPath $tempBuildRoot -Recurse -Force -ErrorAction SilentlyContinue
     if ($IncludeOfflineChromium) {
         Write-Host "离线版安装包构建完成：$(Join-Path $distRoot "installer\$outputBaseFilename.exe")"
     } else {
