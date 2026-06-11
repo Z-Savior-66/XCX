@@ -11,6 +11,7 @@ from desktop_py.core.fetcher_support import (
     FetchError,
     FetchErrorCode,
     fetch_error_code,
+    guarded_page_goto,
     is_login_timeout_page,
     recover_login_timeout_page,
 )
@@ -162,7 +163,7 @@ def open_notification_center(
     safe_page_content_fn: Callable[..., str],
     is_cancelled: CancelCheck | None = None,
 ) -> None:
-    page.goto(account.home_url, wait_until="domcontentloaded", timeout=60000)
+    guarded_page_goto(page, account.home_url, wait_until="domcontentloaded", timeout=60000)
     wait_for_url_contains_fn(page, ("token=", "/wxamp/index/index"), timeout_ms=4000, is_cancelled=is_cancelled)
     if is_login_timeout_page(page, safe_page_content_fn=safe_page_content_fn):
         recover_login_timeout_page(

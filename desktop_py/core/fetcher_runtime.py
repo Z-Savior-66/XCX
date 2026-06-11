@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from desktop_py.core.fetcher_common import _log
-from desktop_py.core.fetcher_support import FetchError, persist_storage_state
+from desktop_py.core.fetcher_support import FetchError, FetchErrorCode, fetch_error_code, persist_storage_state
 from desktop_py.core.models import AccountConfig
 
 
@@ -325,6 +325,8 @@ def runtime_recycle_reason(runtime: Any, *, max_processed_count: int = 5) -> str
 
 
 def should_invalidate_runtime(exc: Exception) -> bool:
+    if fetch_error_code(exc) == FetchErrorCode.NETWORK_NAVIGATION_FAILED.value:
+        return True
     message = str(exc).lower()
     fatal_tokens = (
         "has been closed",

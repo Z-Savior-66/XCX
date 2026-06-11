@@ -282,9 +282,64 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
         self.assertEqual(len(created_pages), 1)
         self.assertTrue(all(page.closed for page in created_pages))
 
-    def test_fetch_accounts_batch_rebuilds_runtime_every_five_accounts(self):
+    def test_fetch_accounts_batch_does_not_rebuild_runtime_for_small_batch_by_default(self):
         accounts = [
             AccountConfig(name=f"账号{i}", state_path="storage/a.json", is_entry_account=False) for i in range(6)
+        ]
+        created_pages = []
+
+        class FakePageObject:
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        class FakeContext:
+            def new_page(self):
+                page = FakePageObject()
+                created_pages.append(page)
+                return page
+
+            def storage_state(self, path=None, indexed_db=False):
+                return None
+
+            def close(self):
+                return None
+
+        fake_browser = type("FakeBrowser", (), {"close": lambda self: None})()
+
+        with (
+            patch("desktop_py.core.fetcher.sync_playwright") as mock_playwright,
+            patch(
+                "desktop_py.core.fetcher.create_browser_context",
+                side_effect=[
+                    (fake_browser, FakeContext()),
+                    (fake_browser, FakeContext()),
+                ],
+            ) as mock_create_context,
+            patch(
+                "desktop_py.core.fetcher._fetch_account_in_page",
+                side_effect=lambda page, context, account, logger, profile_dir, is_cancelled=None: FetchResult(
+                    account_name=account.name,
+                    ok=True,
+                    actual_account_name=account.name,
+                ),
+            ),
+            patch("desktop_py.core.fetcher.Path.exists", return_value=True),
+        ):
+            mock_playwright.return_value.__enter__.return_value = object()
+
+            results = fetch_accounts_batch(accounts)
+
+        self.assertEqual([result.account_name for result in results], [account.name for account in accounts])
+        self.assertEqual(mock_create_context.call_count, 1)
+        self.assertEqual(len(created_pages), 1)
+        self.assertTrue(all(page.closed for page in created_pages))
+
+    def test_fetch_accounts_batch_rebuilds_runtime_for_large_batch_by_default(self):
+        accounts = [
+            AccountConfig(name=f"账号{i}", state_path="storage/a.json", is_entry_account=False) for i in range(21)
         ]
         created_pages = []
 
@@ -1484,3 +1539,64 @@ class FetcherRuntimePipelineTestCase(FetcherTestBase):
         self.assertTrue(results[1].ok)
         self.assertEqual(results[1].account_name, "账号B")
         self.assertIn("target page, context or browser has been closed", invalidated_messages[0])
+
+    def test_fetch_accounts_batch_rebuilds_runtime_after_network_navigation_error(self):
+        from desktop_py.core.fetcher_pipeline import fetch_accounts_batch_impl
+        from desktop_py.core.fetcher_runtime import should_invalidate_runtime
+
+        accounts = [
+            AccountConfig(name="账号A", state_path="storage/a.json", is_entry_account=False),
+            AccountConfig(name="账号B", state_path="storage/a.json", is_entry_account=False),
+        ]
+        acquire_calls = 0
+        invalidated_messages: list[str] = []
+
+        class FakeRuntime:
+            def __init__(self, runtime_id: int):
+                self.page = object()
+                self.context = object()
+                self.valid = True
+                self.busy = True
+                self.runtime_id = runtime_id
+
+        def acquire_runtime(*_args, **_kwargs):
+            nonlocal acquire_calls
+            acquire_calls += 1
+            return FakeRuntime(acquire_calls)
+
+        def invalidate_runtime(runtime, message=""):
+            runtime.valid = False
+            runtime.busy = False
+            invalidated_messages.append(message)
+
+        def fetch_account_in_page(_page, _context, account, *_args):
+            if account.name == "账号A":
+                raise FetchError(
+                    "无法访问微信后台，请检查网络、DNS 或代理设置后重试。",
+                    code="network_navigation_failed",
+                )
+            return FetchResult(account_name=account.name, ok=True, actual_account_name=account.name)
+
+        deps = FetcherDeps(
+            sync_playwright_fn=lambda: None,
+            path_exists_fn=lambda _path: True,
+            validate_shared_browser_profile_dir_fn=lambda value: value,
+            create_browser_context_fn=lambda *_args: (None, None),
+            validate_account_state_fn=lambda *_args, **_kwargs: True,
+            renew_account_state_fn=lambda *_args, **_kwargs: True,
+            fetch_account_in_page_fn=fetch_account_in_page,
+            acquire_group_runtime_fn=acquire_runtime,
+            release_group_runtime_fn=lambda _runtime: None,
+            invalidate_group_runtime_fn=invalidate_runtime,
+            runtime_current_account_name_fn=lambda _runtime: "",
+            update_runtime_current_account_name_fn=lambda _runtime, _name: None,
+            should_invalidate_runtime_fn=should_invalidate_runtime,
+        )
+        results = fetch_accounts_batch_impl(accounts, deps)
+
+        self.assertEqual(acquire_calls, 2)
+        self.assertEqual(len(results), 2)
+        self.assertFalse(results[0].ok)
+        self.assertIn("无法访问微信后台", results[0].note)
+        self.assertTrue(results[1].ok)
+        self.assertIn("无法访问微信后台", invalidated_messages[0])

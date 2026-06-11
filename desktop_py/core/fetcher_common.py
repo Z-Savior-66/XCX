@@ -5,6 +5,7 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol, cast
+from urllib.parse import urlparse
 
 from playwright.sync_api import Page
 
@@ -23,6 +24,7 @@ class FetchErrorCode(StrEnum):
     SWITCH_ACCOUNT_NOT_FOUND = "switch_account_not_found"
     SWITCH_ACCOUNT_MISMATCH = "switch_account_mismatch"
     SWITCH_ACCOUNT_LIST_EMPTY = "switch_account_list_empty"
+    NETWORK_NAVIGATION_FAILED = "network_navigation_failed"
     TRANSACTION_COMPLAINT_RESPONSE_INVALID = "transaction_complaint_response_invalid"
     TRANSACTION_COMPLAINT_API_FAILED = "transaction_complaint_api_failed"
 
@@ -148,6 +150,52 @@ def build_ios_refund_feedback_url(page_url: str) -> str:
             ],
         )
     return feedback_url
+
+
+def is_network_navigation_error(error: Exception) -> bool:
+    message = str(error).lower()
+    tokens = (
+        "net::err_name_not_resolved",
+        "net::err_internet_disconnected",
+        "net::err_connection",
+        "net::err_timed_out",
+        "net::err_network_changed",
+        "net::err_proxy",
+        "net::err_tunnel_connection_failed",
+        "dns",
+    )
+    return ("page.goto" in message or "navigating to" in message) and any(token in message for token in tokens)
+
+
+def guarded_page_goto(page: Page, url: str, *, wait_until: str | None = None, timeout: int | None = None) -> Any:
+    kwargs: dict[str, Any] = {}
+    if wait_until is not None:
+        kwargs["wait_until"] = wait_until
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    try:
+        return page.goto(url, **kwargs)
+    except Exception as exc:
+        if not is_network_navigation_error(exc):
+            raise
+        parsed = urlparse(url)
+        host = parsed.netloc or url
+        raise FetchError(
+            f"无法访问微信后台（{host}），请检查网络、DNS 或代理设置后重试。",
+            code=FetchErrorCode.NETWORK_NAVIGATION_FAILED,
+            evidence=[
+                {
+                    "kind": "network",
+                    "label": "微信后台访问",
+                    "summary": "浏览器打开微信后台时发生网络解析或连接失败。",
+                    "metadata": {
+                        "target_url": url,
+                        "host": host,
+                        "playwright_error": str(exc),
+                    },
+                }
+            ],
+        ) from exc
 
 
 def fetch_error_code(error: BaseException) -> str:

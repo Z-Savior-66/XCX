@@ -21,6 +21,8 @@ from desktop_py.core.fetcher_common import (
     build_ios_refund_feedback_url,
     ensure_account_session_available,
     fetch_error_code,
+    guarded_page_goto,
+    is_network_navigation_error,
     normalize_profile_dir,
 )
 from desktop_py.core.page_waiting import (
@@ -121,6 +123,8 @@ __all__ = [
     "create_browser_context",
     "ensure_account_session_available",
     "fetch_error_code",
+    "guarded_page_goto",
+    "is_network_navigation_error",
     "extract_response_token",
     "is_login_timeout_page",
     "is_wechat_mp_root_page_url",

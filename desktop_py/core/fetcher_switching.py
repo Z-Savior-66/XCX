@@ -14,6 +14,7 @@ from desktop_py.core.fetcher_support import (
     _log,
     analyze_storage_state,
     ensure_account_session_available,
+    guarded_page_goto,
     is_login_timeout_page,
     normalize_profile_dir,
     recover_login_timeout_page,
@@ -100,7 +101,7 @@ def _navigate_switch_retry_url(
     wait_for_url_contains_fn: Callable[..., Any],
 ) -> None:
     log_fn(logger, f"{message}：{retry_url}")
-    page.goto(retry_url, wait_until="domcontentloaded", timeout=60000)
+    guarded_page_goto(page, retry_url, wait_until="domcontentloaded", timeout=60000)
     wait_for_url_contains_fn(page, ("token=", "/wxamp/index/index", "pluginRedirect/gameFeedback"), timeout_ms=4000)
 
 
@@ -486,7 +487,7 @@ def fetch_switchable_accounts_impl(
         page = context.new_page()
         try:
             bootstrap_url = resolve_switch_bootstrap_url_impl(account)
-            page.goto(bootstrap_url, wait_until="domcontentloaded", timeout=60000)
+            guarded_page_goto(page, bootstrap_url, wait_until="domcontentloaded", timeout=60000)
             wait_for_url_contains_fn(
                 page, ("token=", "/wxamp/index/index", "pluginRedirect/gameFeedback"), timeout_ms=4000
             )

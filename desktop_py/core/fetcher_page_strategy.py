@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from desktop_py.core.fetcher_common import CancelCheck, Logger, _log
 from desktop_py.core.fetcher_output import persist_storage_state
 from desktop_py.core.fetcher_rules import DEFAULT_REFUND_RULES
-from desktop_py.core.fetcher_support import FetchError, FetchErrorCode, _fallback_from_responses
+from desktop_py.core.fetcher_support import FetchError, FetchErrorCode, _fallback_from_responses, guarded_page_goto
 from desktop_py.core.models import AccountConfig, FetchResult
 from desktop_py.core.response_capture import (
     _capture_response_payload,
@@ -322,7 +322,7 @@ def open_feedback_page(
     is_cancelled: CancelCheck | None = None,
 ) -> str:
     feedback_url = build_feedback_url_fn(page.url)
-    page.goto(feedback_url, wait_until="domcontentloaded", timeout=60000)
+    guarded_page_goto(page, feedback_url, wait_until="domcontentloaded", timeout=60000)
     wait_for_iframe_ready_fn(page, timeout_ms=5000, is_cancelled=is_cancelled)
     return feedback_url
 

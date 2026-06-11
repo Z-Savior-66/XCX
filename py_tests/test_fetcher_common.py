@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
+from desktop_py.core import fetcher_common
 from desktop_py.core.fetcher_common import (
     FetchError,
     FetchErrorCode,
@@ -83,6 +84,30 @@ class FetchErrorCodeTestCase(unittest.TestCase):
 
     def test_returns_empty_for_plain_exception(self):
         self.assertEqual(fetch_error_code(RuntimeError("fail")), "")
+
+
+class GuardedPageGotoTestCase(unittest.TestCase):
+    def test_wraps_name_resolution_failure_with_chinese_fetch_error(self):
+        class FailingPage:
+            def goto(self, url, wait_until=None, timeout=None):
+                raise RuntimeError(
+                    "Page.goto: net::ERR_NAME_NOT_RESOLVED at https://mp.weixin.qq.com/\n"
+                    "Call log:\n"
+                    '  - navigating to "https://mp.weixin.qq.com/", waiting until "domcontentloaded"'
+                )
+
+        with self.assertRaises(FetchError) as ctx:
+            fetcher_common.guarded_page_goto(
+                FailingPage(),
+                "https://mp.weixin.qq.com/",
+                wait_until="domcontentloaded",
+                timeout=60000,
+            )
+
+        self.assertEqual(fetch_error_code(ctx.exception), "network_navigation_failed")
+        self.assertIn("无法访问微信后台", str(ctx.exception))
+        self.assertIn("网络、DNS 或代理", str(ctx.exception))
+        self.assertEqual(ctx.exception.evidence[0]["metadata"]["target_url"], "https://mp.weixin.qq.com/")
 
 
 class EnsureAccountSessionAvailableTestCase(unittest.TestCase):

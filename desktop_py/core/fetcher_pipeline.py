@@ -45,12 +45,13 @@ from desktop_py.core.fetcher_support import (
     FetchError,
     FetchErrorCode,
     ensure_account_session_available,
+    guarded_page_goto,
     is_login_timeout_page,
     normalize_profile_dir,
 )
 from desktop_py.core.models import AccountConfig, FetchResult
 
-BATCH_RUNTIME_REFRESH_EVERY = 5
+BATCH_RUNTIME_REFRESH_EVERY = 20
 LogFn = Callable[[Logger | None, str], None]
 
 
@@ -524,7 +525,7 @@ def _fetch_account_in_page_with_context(
         bootstrap_url = pipeline_context.navigation.resolve_bootstrap_url_fn(account, output_dir)
         if not page_has_backend_session(page):
             with fetch_step(manifest, "进入微信后台", detail=bootstrap_url):
-                page.goto(bootstrap_url, wait_until="domcontentloaded", timeout=60000)
+                guarded_page_goto(page, bootstrap_url, wait_until="domcontentloaded", timeout=60000)
                 pipeline_context.navigation.wait_for_url_contains_fn(
                     page, ("token=", "/wxamp/index/index"), timeout_ms=4000, is_cancelled=is_cancelled
                 )

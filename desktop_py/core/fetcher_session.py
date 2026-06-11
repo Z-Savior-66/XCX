@@ -13,6 +13,7 @@ from desktop_py.core.fetcher_common import CancelCheck, Logger
 from desktop_py.core.fetcher_support import (
     FetchError,
     ensure_account_session_available,
+    guarded_page_goto,
     normalize_profile_dir,
     persist_storage_state,
 )
@@ -173,7 +174,7 @@ def save_login_state_impl(
         context = browser.new_context(viewport={"width": 1440, "height": 1200})
         page = context.new_page()
         try:
-            page.goto(account.home_url, wait_until="domcontentloaded")
+            guarded_page_goto(page, account.home_url, wait_until="domcontentloaded")
             log_fn(logger, f"已打开微信后台登录页，请在 {wait_seconds} 秒内完成账号 {account.name} 的扫码登录。")
             log_fn(logger, "如果页面已经是登录后的后台首页，无需重复扫码，保持页面打开等待程序自动保存即可。")
 
@@ -238,7 +239,7 @@ def save_login_state_with_profile_impl(
         )
         page = context.new_page()
         try:
-            page.goto(account.home_url, wait_until="domcontentloaded")
+            guarded_page_goto(page, account.home_url, wait_until="domcontentloaded")
             log_fn(
                 logger,
                 f"已打开共享浏览器资料目录，请在 {wait_seconds} 秒内完成扫码登录。"

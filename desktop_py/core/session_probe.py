@@ -8,7 +8,7 @@ from typing import Any
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from desktop_py.core.fetcher_common import Logger, _now_text, _wait_for_timeout
+from desktop_py.core.fetcher_common import Logger, _now_text, _wait_for_timeout, guarded_page_goto
 from desktop_py.core.models import (
     SESSION_SOURCE_PROFILE,
     SESSION_SOURCE_STATE_FILE,
@@ -257,7 +257,7 @@ def _probe_account_session_url(
     timeout_ms: int,
 ) -> bool:
     try:
-        page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        guarded_page_goto(page, url, wait_until="domcontentloaded", timeout=60000)
     except PlaywrightTimeoutError:
         if recover_login_timeout_page(
             page,
