@@ -48,9 +48,11 @@ class StoreTestCase(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             settings_path = Path(temp_dir) / "settings.json"
             settings_path.write_text('{"feishu_webhook":"demo"}\n', encoding="utf-8")
+            project_root = Path(temp_dir) / "project"
 
             with (
                 patch("desktop_py.core.store.SETTINGS_FILE", settings_path),
+                patch("desktop_py.core.store.PROJECT_ROOT", project_root),
                 patch("desktop_py.core.store.ensure_runtime_dirs"),
             ):
                 settings = load_settings()
@@ -58,6 +60,7 @@ class StoreTestCase(unittest.TestCase):
         self.assertFalse(settings.auto_fetch_push_enabled)
         self.assertEqual(settings.diagnostic_retention_days, 14)
         self.assertEqual(settings.schema_version, CONFIG_SCHEMA_VERSION)
+        self.assertEqual(settings.browser_profile_dir, str(project_root / SHARED_BROWSER_PROFILE_DIR_NAME))
 
     def test_load_blocked_account_names_creates_default_file_when_missing(self):
         with TemporaryDirectory() as temp_dir:
@@ -350,9 +353,11 @@ class StoreTestCase(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             settings_path = Path(temp_dir) / "settings.json"
             settings_path.write_text("{", encoding="utf-8")
+            project_root = Path(temp_dir) / "project"
 
             with (
                 patch("desktop_py.core.store.SETTINGS_FILE", settings_path),
+                patch("desktop_py.core.store.PROJECT_ROOT", project_root),
                 patch("desktop_py.core.store.ensure_runtime_dirs"),
             ):
                 settings = load_settings()
@@ -361,7 +366,7 @@ class StoreTestCase(unittest.TestCase):
             restored_content = settings_path.read_text(encoding="utf-8")
             backup_content = backups[0].read_text(encoding="utf-8")
 
-        self.assertEqual(settings, AppSettings())
+        self.assertEqual(settings, AppSettings(browser_profile_dir=str(project_root / SHARED_BROWSER_PROFILE_DIR_NAME)))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backup_content, "{")
         self.assertIn('"schema_version": 1', restored_content)

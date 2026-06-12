@@ -75,6 +75,10 @@ DIAGNOSTIC_ARTIFACT_NAMES = frozenset(
 )
 
 
+def default_browser_profile_dir() -> Path:
+    return PROJECT_ROOT / SHARED_BROWSER_PROFILE_DIR_NAME
+
+
 def acquire_app_instance_lock(
     *,
     lock_path: Path = RUNNING_INSTANCE_LOCK_FILE,
@@ -96,7 +100,7 @@ def acquire_app_instance_lock(
 
 
 def ensure_runtime_dirs() -> None:
-    for dir_path in (DATA_DIR, LOG_DIR, STORAGE_DIR, PY_OUTPUT_DIR):
+    for dir_path in (DATA_DIR, LOG_DIR, STORAGE_DIR, PY_OUTPUT_DIR, default_browser_profile_dir()):
         dir_path.mkdir(parents=True, exist_ok=True)
         try:
             dir_path.chmod(stat.S_IRWXU)
@@ -128,6 +132,8 @@ def load_settings() -> AppSettings:
     raw = cast(dict[str, Any], _read_json_file_or_recover(SETTINGS_FILE, default_content))
     allowed = {item.name for item in fields(AppSettings)}
     filtered = {key: value for key, value in raw.items() if key in allowed}
+    if not str(filtered.get("browser_profile_dir", "") or "").strip():
+        filtered["browser_profile_dir"] = str(default_browser_profile_dir())
     return AppSettings(**filtered)
 
 
