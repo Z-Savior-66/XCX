@@ -128,7 +128,7 @@ class MessageDialog(QDialog):
                 min-height: 40px;
                 padding: 0 10px;
                 border: 1px solid #2f80ed;
-                border-radius: 0px;
+                border-radius: 6px;
                 background: #2f80ed;
                 color: #ffffff;
                 font-size: 14px;
@@ -143,7 +143,7 @@ class MessageDialog(QDialog):
                 min-height: 40px;
                 padding: 0 10px;
                 border: 1px solid #d0dae5;
-                border-radius: 0px;
+                border-radius: 6px;
                 background: #ffffff;
                 color: #24384d;
                 font-size: 14px;

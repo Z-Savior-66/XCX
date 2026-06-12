@@ -114,7 +114,7 @@ class AccountDialog(QDialog):
                 min-height: 40px;
                 padding: 0 12px;
                 border: 1px solid #c8d3df;
-                border-radius: 12px;
+                border-radius: 6px;
                 background: #f9fbfd;
                 color: #132238;
             }
@@ -129,7 +129,7 @@ class AccountDialog(QDialog):
             QPushButton {
                 min-height: 40px;
                 padding: 0 18px;
-                border-radius: 12px;
+                border-radius: 6px;
                 border: 1px solid #d0dae5;
                 background: #ffffff;
                 color: #24384d;
