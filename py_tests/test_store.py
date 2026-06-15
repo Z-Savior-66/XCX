@@ -612,6 +612,24 @@ class StoreTestCase(unittest.TestCase):
 
         self.assertEqual(root, Path(r"C:\portable\小程序工具"))
 
+    def test_runtime_root_uses_local_appdata_for_frozen_desktop_directory(self):
+        fake_env = {
+            "LOCALAPPDATA": r"C:\Users\Administrator\AppData\Local",
+            "USERPROFILE": r"C:\Users\Administrator",
+        }
+        with (
+            patch("desktop_py.core.store.os.access", return_value=True),
+            patch(
+                "desktop_py.core.store.sys",
+                frozen=True,
+                executable=r"C:\\Users\\Administrator\\Desktop\\小程序管理工具-旧版\\小程序工具.exe",
+            ),
+            patch.dict("desktop_py.core.store.os.environ", fake_env, clear=True),
+        ):
+            root = runtime_root()
+
+        self.assertEqual(root, Path(r"C:\Users\Administrator\AppData\Local\小程序工具"))
+
     def test_runtime_root_falls_back_to_local_appdata_when_frozen_dir_not_writable(self):
         fake_env = {"LOCALAPPDATA": r"C:\Users\Tester\AppData\Local"}
         with (

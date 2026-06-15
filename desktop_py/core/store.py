@@ -34,14 +34,38 @@ ATOMIC_WRITE_REPLACE_ATTEMPTS = 5
 ATOMIC_WRITE_RETRY_DELAY_SECONDS = 0.1
 
 
+def _local_appdata_runtime_root() -> Path | None:
+    local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
+    if not local_appdata:
+        return None
+    return Path(local_appdata).expanduser() / APP_NAME
+
+
+def _is_under_windows_desktop(path: Path) -> bool:
+    desktop_roots = []
+    for env_name in ("USERPROFILE", "OneDrive", "OneDriveCommercial", "OneDriveConsumer"):
+        env_value = os.environ.get(env_name, "").strip()
+        if env_value:
+            desktop_roots.append(Path(env_value).expanduser() / "Desktop")
+    for desktop_root in desktop_roots:
+        try:
+            path.relative_to(desktop_root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
 def runtime_root() -> Path:
     if getattr(sys, "frozen", False):
         executable_dir = Path(sys.executable).resolve().parent
+        local_appdata_root = _local_appdata_runtime_root()
+        if local_appdata_root is not None and _is_under_windows_desktop(executable_dir):
+            return local_appdata_root
         if os.access(executable_dir, os.W_OK):
             return executable_dir
-        local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
-        if local_appdata:
-            return Path(local_appdata).expanduser() / APP_NAME
+        if local_appdata_root is not None:
+            return local_appdata_root
         return executable_dir
     return Path(__file__).resolve().parents[2]
 
